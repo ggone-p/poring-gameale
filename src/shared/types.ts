@@ -37,6 +37,7 @@ export interface AssetLibrary {
 export interface WorkflowPreferences {
   outputDir: string
   projectOutputDirs: Record<string, string>
+  projectVideoOutputDirs: Record<string, string>
   organizeByMonth: boolean
   launchAtLogin: boolean
   keepInBackground: boolean
@@ -114,6 +115,7 @@ export interface ImageItem {
   width: number
   height: number
   status: QueueStatus
+  sourceType?: 'image' | 'video-frame'
   generatedName?: string
   recordId?: string
   outputPath?: string
@@ -170,6 +172,7 @@ export const defaultOverlays: OverlayState = {
 export const defaultWorkflow: WorkflowPreferences = {
   outputDir: '',
   projectOutputDirs: {},
+  projectVideoOutputDirs: {},
   organizeByMonth: true,
   launchAtLogin: true,
   keepInBackground: true

@@ -209,9 +209,10 @@ function collapseWindow(): void {
   saveConfig({ window: { ...readConfig().window, collapsed: true } })
 }
 
-function outputDirectory(config: AppConfig, dateText: string): string {
+function outputDirectory(config: AppConfig, dateText: string, item?: ImageItem): string {
   const projectDir = config.workflow.projectOutputDirs?.[config.feishu.tableId] || ''
-  const baseDir = projectDir || config.workflow.outputDir || ''
+  const projectVideoDir = config.workflow.projectVideoOutputDirs?.[config.feishu.tableId] || ''
+  const baseDir = item?.sourceType === 'video-frame' ? projectVideoDir || projectDir || config.workflow.outputDir || '' : projectDir || config.workflow.outputDir || ''
   if (!baseDir) return ''
   if (!config.workflow.organizeByMonth) {
     mkdirSync(baseDir, { recursive: true })
@@ -237,7 +238,8 @@ async function imageToItem(filePath: string): Promise<ImageItem> {
     dataUrl: `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${buffer.toString('base64')}`,
     width: metadata.width || 1,
     height: metadata.height || 1,
-    status: 'waiting'
+    status: 'waiting',
+    sourceType: 'image'
   }
 }
 
@@ -259,7 +261,7 @@ async function saveVideoFrame(dataUrl: string, fileName: string): Promise<ImageI
     `boli-video-frame-${Date.now()}-${Math.random().toString(16).slice(2)}-${safeName}`
   )
   writeFileSync(tempPath, Buffer.from(match[1], 'base64'))
-  return imageToItem(tempPath)
+  return { ...(await imageToItem(tempPath)), sourceType: 'video-frame' }
 }
 
 function listAssets(dir: string): AssetFile[] {
@@ -561,7 +563,7 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
     const generatedName = await waitForGeneratedName(config, created.recordId)
     const sourceExt = extname(request.item.path) || '.png'
     const uploadName = `${generatedName}${sourceExt}`
-    const configuredOutputDir = outputDirectory(config, request.selections.completionDate)
+    const configuredOutputDir = outputDirectory(config, request.selections.completionDate, request.item)
     const targetDir = configuredOutputDir || dirname(request.item.path)
     const targetPath = uniquePath(join(targetDir, `${generatedName}${sourceExt}`))
     const tempPath = join(app.getPath('temp'), `asset-uploader-${Date.now()}-${Math.random().toString(16).slice(2)}${sourceExt}`)

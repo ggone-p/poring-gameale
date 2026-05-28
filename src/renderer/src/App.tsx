@@ -37,6 +37,7 @@ import type {
   UploadSelections
 } from '../../shared/types'
 import { defaultOverlays } from '../../shared/types'
+import poringEatSoundUrl from './assets/poring-eat.mp3'
 
 function loadFrames(glob: Record<string, string>): string[] {
   return Object.entries(glob)
@@ -113,6 +114,7 @@ function App(): JSX.Element {
   const [videoPaused, setVideoPaused] = useState(true)
   const [videoTimelineFrames, setVideoTimelineFrames] = useState<VideoFrameSelection[]>([])
   const [videoTimelineZoom, setVideoTimelineZoom] = useState(1)
+  const [videoLoadError, setVideoLoadError] = useState('')
   const [poringMood, setPoringMood] = useState<'idle' | 'hover' | 'eating' | 'press-intro' | 'pressed'>('idle')
   const [poringFrame, setPoringFrame] = useState(0)
   const [assetFiles, setAssetFiles] = useState<Record<OverlayKind, AssetFile[]>>({
@@ -172,6 +174,7 @@ function App(): JSX.Element {
   const activePoringFrame = activePoringFrames[poringFrame % Math.max(1, activePoringFrames.length)] || ''
   const autoSyncedRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const eatAudioRef = useRef<HTMLAudioElement | null>(null)
   const moveRef = useRef<{
     pointerId: number
     startScreenX: number
@@ -216,9 +219,11 @@ function App(): JSX.Element {
   useEffect(() => {
     if (!videoPanel) {
       setVideoTimelineFrames([])
+      setVideoLoadError('')
       return
     }
     let cancelled = false
+    setVideoLoadError('')
     setVideoTimelineFrames([])
     generateVideoTimelineFrames(videoPanel.url, 14)
       .then((frames) => {
@@ -230,6 +235,13 @@ function App(): JSX.Element {
     return () => {
       cancelled = true
     }
+  }, [videoPanel?.url])
+
+  useEffect(() => {
+    if (!videoPanel) return
+    const video = videoRef.current
+    if (!video) return
+    video.load()
   }, [videoPanel?.url])
 
   useEffect(() => {
@@ -307,7 +319,10 @@ function App(): JSX.Element {
     const videoPaths = paths.filter(isVideoPath)
     if (!imagePaths.length && !videoPaths.length) return
 
-    if (collapsed) setPoringMood('eating')
+    if (collapsed) {
+      setPoringMood('eating')
+      playEatSound()
+    }
     const items = imagePaths.length ? await window.assetUploader.importDroppedFiles(imagePaths) : []
     appendImages(items)
     if (imagePaths.length) {
@@ -336,6 +351,7 @@ function App(): JSX.Element {
     setVideoTime(0)
     setVideoDuration(0)
     setVideoPaused(true)
+    setVideoLoadError('')
     setVideoTimelineZoom(1)
     setVideoPanel({
       path,
@@ -343,6 +359,13 @@ function App(): JSX.Element {
       url: fileUrlFromPath(path),
       frames: []
     })
+  }
+
+  function playEatSound(): void {
+    const audio = eatAudioRef.current
+    if (!audio) return
+    audio.currentTime = 0
+    void audio.play().catch(() => undefined)
   }
 
   function captureVideoFrame(): void {
@@ -657,6 +680,21 @@ function App(): JSX.Element {
     } as Partial<AppConfig>)
   }
 
+  async function chooseProjectVideoOutputDir(): Promise<void> {
+    if (!config || !config.feishu.tableId) return
+    const dir = await window.assetUploader.pickDirectory()
+    if (!dir) return
+    updateConfig({
+      workflow: {
+        ...config.workflow,
+        projectVideoOutputDirs: {
+          ...config.workflow.projectVideoOutputDirs,
+          [config.feishu.tableId]: dir
+        }
+      }
+    } as Partial<AppConfig>)
+  }
+
   async function uploadAll(): Promise<void> {
     if (!config || !queue.length) return
     const effectiveConfig: AppConfig = {
@@ -730,6 +768,7 @@ function App(): JSX.Element {
         onPointerUp={handlePoringPointerUp}
         onPointerCancel={handlePoringPointerCancel}
       >
+        <audio ref={eatAudioRef} src={poringEatSoundUrl} preload="auto" />
         <div className="poring-shadow" />
         <img className="poring-image" src={activePoringFrame} alt="素材悬浮上传" />
       </div>
@@ -809,6 +848,7 @@ function App(): JSX.Element {
           onChooseDir={chooseAssetDir}
           onChooseOutputDir={chooseOutputDir}
           onChooseProjectOutputDir={chooseProjectOutputDir}
+          onChooseProjectVideoOutputDir={chooseProjectVideoOutputDir}
         />
       ) : videoPanel ? (
         <VideoFramePickerStitch
@@ -821,6 +861,8 @@ function App(): JSX.Element {
           timelineFrames={videoTimelineFrames}
           timelineZoom={videoTimelineZoom}
           onTimelineZoom={setVideoTimelineZoom}
+          loadError={videoLoadError}
+          onLoadError={setVideoLoadError}
           onLoadedMetadata={(duration) => setVideoDuration(duration)}
           onTimeUpdate={(time) => setVideoTime(time)}
           onPlayStateChange={setVideoPaused}
@@ -906,6 +948,8 @@ function VideoFramePickerStitch({
   timelineFrames,
   timelineZoom,
   onTimelineZoom,
+  loadError,
+  onLoadError,
   onLoadedMetadata,
   onTimeUpdate,
   onPlayStateChange,
@@ -926,6 +970,8 @@ function VideoFramePickerStitch({
   timelineFrames: VideoFrameSelection[]
   timelineZoom: number
   onTimelineZoom: React.Dispatch<React.SetStateAction<number>>
+  loadError: string
+  onLoadError: (message: string) => void
   onLoadedMetadata: (duration: number) => void
   onTimeUpdate: (time: number) => void
   onPlayStateChange: (paused: boolean) => void
@@ -983,17 +1029,36 @@ function VideoFramePickerStitch({
           <section className="video-left">
             <div className="video-canvas">
               <video
+                key={panel.url}
                 ref={videoRef}
                 src={panel.url}
-                onLoadedMetadata={(event) => onLoadedMetadata(event.currentTarget.duration || 0)}
+                preload="auto"
+                playsInline
+                onLoadedMetadata={(event) => {
+                  onLoadError('')
+                  onLoadedMetadata(event.currentTarget.duration || 0)
+                }}
+                onLoadedData={(event) => {
+                  onLoadError('')
+                  onTimeUpdate(event.currentTarget.currentTime)
+                }}
                 onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
                 onPlay={() => onPlayStateChange(false)}
                 onPause={() => onPlayStateChange(true)}
+                onError={(event) => {
+                  const code = event.currentTarget.error?.code
+                  const reason =
+                    code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+                      ? '当前视频编码无法被 Electron 直接预览，可以换 H.264 MP4 或后续接入自动转码。'
+                      : '视频加载失败，请重试或检查文件是否可播放。'
+                  onLoadError(reason)
+                }}
               />
               <button className="video-play-overlay" onClick={onTogglePlay} title={paused ? '播放' : '暂停'}>
                 {paused ? <Play size={42} /> : <Pause size={42} />}
               </button>
               <span className="video-timecode">{formatTime(currentTime)}</span>
+              {loadError && <div className="video-load-error">{loadError}</div>}
             </div>
           </section>
 
@@ -1067,18 +1132,6 @@ function VideoFramePickerStitch({
           </button>
           <button className="icon-btn" onClick={onTogglePlay} title={paused ? '播放' : '暂停'}>
             {paused ? <Play size={16} /> : <Pause size={16} />}
-          </button>
-          <button className="secondary-btn" onClick={() => onSeek(-1 / 30)}>
-            -1 帧
-          </button>
-          <button className="secondary-btn" onClick={() => onSeek(1 / 30)}>
-            +1 帧
-          </button>
-          <button className="secondary-btn" onClick={() => onSeek(-0.1)}>
-            -0.1s
-          </button>
-          <button className="secondary-btn" onClick={() => onSeek(0.1)}>
-            +0.1s
           </button>
           <button className="primary-btn capture-btn" onClick={onCapture}>
             <ImagePlus size={16} />
@@ -1175,19 +1228,7 @@ function VideoFramePicker({
               <button className="icon-btn" onClick={onTogglePlay} title={paused ? '播放' : '暂停'}>
                 {paused ? <Play size={16} /> : <Pause size={16} />}
               </button>
-              <button className="secondary-btn" onClick={() => onSeek(-1 / 30)}>
-                -1 帧
-              </button>
-              <button className="secondary-btn" onClick={() => onSeek(1 / 30)}>
-                +1 帧
-              </button>
-              <button className="secondary-btn" onClick={() => onSeek(-0.1)}>
-                -0.1s
-              </button>
-              <button className="secondary-btn" onClick={() => onSeek(0.1)}>
-                +0.1s
-              </button>
-              <button className="primary-btn capture-btn" onClick={onCapture}>
+          <button className="primary-btn capture-btn" onClick={onCapture}>
                 <ImagePlus size={16} />
                 添加为截图
               </button>
@@ -1318,7 +1359,14 @@ function fileNameFromPath(path: string): string {
 }
 
 function fileUrlFromPath(path: string): string {
-  return encodeURI(`file:///${path.replace(/\\/g, '/')}`)
+  const normalized = path.replace(/\\/g, '/')
+  const parts = normalized.split('/')
+  const first = parts.shift() || ''
+  const encodedRest = parts.map((part) => encodeURIComponent(part)).join('/')
+  if (/^[A-Za-z]:$/.test(first)) {
+    return `file:///${first}/${encodedRest}`
+  }
+  return `file://${[first, encodedRest].filter(Boolean).join('/')}`
 }
 
 function formatTime(seconds: number): string {
@@ -1498,7 +1546,8 @@ function SettingsPanel({
   onSync,
   onChooseDir,
   onChooseOutputDir,
-  onChooseProjectOutputDir
+  onChooseProjectOutputDir,
+  onChooseProjectVideoOutputDir
 }: {
   config: AppConfig
   schema: SchemaSnapshot
@@ -1510,11 +1559,13 @@ function SettingsPanel({
   onChooseDir: (kind: OverlayKind) => void
   onChooseOutputDir: () => void
   onChooseProjectOutputDir: () => void
+  onChooseProjectVideoOutputDir: () => void
 }): JSX.Element {
   const fieldNames = schema.fields.map((field) => field.fieldName)
   const tables = projectTables(schema.tables)
   const currentTable = tables.find((table) => table.tableId === config.feishu.tableId)
   const projectOutputDir = config.feishu.tableId ? config.workflow.projectOutputDirs?.[config.feishu.tableId] || '' : ''
+  const projectVideoOutputDir = config.feishu.tableId ? config.workflow.projectVideoOutputDirs?.[config.feishu.tableId] || '' : ''
   const fieldLabels: Record<string, string> = {
     language: '语言',
     size: '尺寸',
@@ -1608,6 +1659,15 @@ function SettingsPanel({
                 <div className="settings-path-row">
                   <input readOnly value={projectOutputDir || '未设置，使用上方通用输出目录'} />
                   <button className="icon-btn" onClick={onChooseProjectOutputDir} type="button" disabled={!config.feishu.tableId}>
+                    <FolderOpen size={15} />
+                  </button>
+                </div>
+              </label>
+              <label>
+                当前项目视频截图输出目录{currentTable ? `（${currentTable.name}）` : ''}
+                <div className="settings-path-row">
+                  <input readOnly value={projectVideoOutputDir || '未设置，使用当前项目或通用输出目录'} />
+                  <button className="icon-btn" onClick={onChooseProjectVideoOutputDir} type="button" disabled={!config.feishu.tableId}>
                     <FolderOpen size={15} />
                   </button>
                 </div>
