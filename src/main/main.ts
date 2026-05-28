@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { extname, join, dirname, basename } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
 import sharp from 'sharp'
 import type {
   AppConfig,
@@ -21,11 +22,14 @@ import { defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflo
 
 const DEFAULT_APP_TOKEN = 'FBGWbqE7YaWtlBsFr5rc8L4vnPh'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let tenantTokenCache: { token: string; expiresAt: number } | null = null
 let isQuitting = false
+let mediaServer: Server | null = null
+let mediaServerPort = 0
 
 function trayIconPath(): string {
   if (app.isPackaged) return join(process.resourcesPath, 'tray-icon.png')
@@ -124,6 +128,89 @@ function todayString(): string {
   const month = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function mimeForPath(filePath: string): string {
+  const ext = extname(filePath).toLowerCase()
+  if (ext === '.mp4' || ext === '.m4v') return 'video/mp4'
+  if (ext === '.mov') return 'video/quicktime'
+  if (ext === '.webm') return 'video/webm'
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.webp') return 'image/webp'
+  return 'application/octet-stream'
+}
+
+function startMediaServer(): Promise<void> {
+  if (mediaServer && mediaServerPort) return Promise.resolve()
+  mediaServer = createServer((request, response) => {
+    const requestUrl = new URL(request.url || '/', 'http://127.0.0.1')
+    if (requestUrl.pathname !== '/media') {
+      response.writeHead(404)
+      response.end()
+      return
+    }
+
+    const filePath = requestUrl.searchParams.get('path') || ''
+    const ext = extname(filePath).toLowerCase()
+    if (!existsSync(filePath) || !VIDEO_EXTENSIONS.has(ext)) {
+      response.writeHead(404, { 'Access-Control-Allow-Origin': '*' })
+      response.end()
+      return
+    }
+
+    const { size } = statSync(filePath)
+    const range = request.headers.range
+    const baseHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-store',
+      'Content-Type': mimeForPath(filePath)
+    }
+
+    if (range) {
+      const match = /bytes=(\d*)-(\d*)/.exec(range)
+      const start = match?.[1] ? Number(match[1]) : 0
+      const end = match?.[2] ? Number(match[2]) : size - 1
+      if (!match || start >= size || end >= size || start > end) {
+        response.writeHead(416, { ...baseHeaders, 'Content-Range': `bytes */${size}` })
+        response.end()
+        return
+      }
+      response.writeHead(206, {
+        ...baseHeaders,
+        'Content-Length': String(end - start + 1),
+        'Content-Range': `bytes ${start}-${end}/${size}`
+      })
+      if (request.method === 'HEAD') {
+        response.end()
+        return
+      }
+      createReadStream(filePath, { start, end }).pipe(response)
+      return
+    }
+
+    response.writeHead(200, { ...baseHeaders, 'Content-Length': String(size) })
+    if (request.method === 'HEAD') {
+      response.end()
+      return
+    }
+    createReadStream(filePath).pipe(response)
+  })
+
+  return new Promise((resolve, reject) => {
+    mediaServer?.once('error', reject)
+    mediaServer?.listen(0, '127.0.0.1', () => {
+      const address = mediaServer?.address()
+      mediaServerPort = typeof address === 'object' && address ? address.port : 0
+      resolve()
+    })
+  })
+}
+
+function mediaUrlForPath(filePath: string): string {
+  if (!mediaServerPort) throw new Error('本地视频服务还没有启动，请重启软件后再试。')
+  return `http://127.0.0.1:${mediaServerPort}/media?path=${encodeURIComponent(filePath)}&v=${statSync(filePath).mtimeMs}`
 }
 
 function createWindow(): void {
@@ -612,8 +699,9 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.gamealestudio.asset-uploader')
+  await startMediaServer()
   applyLoginItemSettings(readConfig())
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -628,6 +716,7 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  mediaServer?.close()
 })
 
 app.on('window-all-closed', () => {
@@ -647,6 +736,7 @@ ipcMain.handle('files:pick-images', async () => {
 })
 ipcMain.handle('files:import-dropped', async (_, paths: string[]) => importImages(paths))
 ipcMain.handle('files:save-video-frame', async (_, dataUrl: string, fileName: string) => saveVideoFrame(dataUrl, fileName))
+ipcMain.handle('files:media-url', (_, path: string) => mediaUrlForPath(path))
 ipcMain.handle('files:pick-directory', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
   return result.canceled ? '' : result.filePaths[0]

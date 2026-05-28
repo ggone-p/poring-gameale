@@ -16,6 +16,7 @@ const api = {
   importDroppedFiles: (paths: string[]): Promise<ImageItem[]> => ipcRenderer.invoke('files:import-dropped', paths),
   saveVideoFrame: (dataUrl: string, fileName: string): Promise<ImageItem> =>
     ipcRenderer.invoke('files:save-video-frame', dataUrl, fileName),
+  mediaUrlForFile: (path: string): Promise<string> => ipcRenderer.invoke('files:media-url', path),
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   pickDirectory: (): Promise<string> => ipcRenderer.invoke('files:pick-directory'),
   listAssets: (dir: string): Promise<Array<{ path: string; name: string }>> => ipcRenderer.invoke('files:list-assets', dir),

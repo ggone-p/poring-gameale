@@ -337,7 +337,7 @@ function App(): JSX.Element {
       setVideoPanel(null)
     }
     if (videoPaths.length && !imagePaths.length) {
-      openVideoPanel(videoPaths[0])
+      void openVideoPanel(videoPaths[0])
     }
     if (items.length || videoPaths.length) {
       await new Promise((resolve) => window.setTimeout(resolve, collapsed ? 420 : 0))
@@ -354,17 +354,23 @@ function App(): JSX.Element {
       .filter(Boolean)
   }
 
-  function openVideoPanel(path: string): void {
+  async function openVideoPanel(path: string): Promise<void> {
     setSettingsOpen(false)
     setVideoTime(0)
     setVideoDuration(0)
     setVideoPaused(true)
     setVideoLoadError('')
     setVideoTimelineZoom(1)
+    let url = fileUrlFromPath(path)
+    try {
+      url = await window.assetUploader.mediaUrlForFile(path)
+    } catch {
+      url = fileUrlFromPath(path)
+    }
     setVideoPanel({
       path,
       fileName: fileNameFromPath(path),
-      url: fileUrlFromPath(path),
+      url,
       frames: []
     })
   }
@@ -1068,6 +1074,7 @@ function VideoFramePickerStitch({
               <video
                 key={panel.url}
                 ref={videoRef}
+                crossOrigin="anonymous"
                 src={panel.url}
                 preload="auto"
                 playsInline
@@ -1327,6 +1334,7 @@ function VideoFramePicker({
 async function generateVideoTimelineFrames(url: string, count: number): Promise<VideoFrameSelection[]> {
   const video = document.createElement('video')
   video.muted = true
+  video.crossOrigin = 'anonymous'
   video.preload = 'metadata'
   const metadataReady = waitForVideoEvent(video, 'loadedmetadata')
   video.src = url

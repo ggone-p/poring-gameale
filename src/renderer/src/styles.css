@@ -3693,3 +3693,179 @@ textarea {
 .stitch-video-footer .video-control-row {
   margin-left: auto;
 }
+
+/* Interaction polish requested after visual QA */
+.titlebar,
+.video-shell .titlebar {
+  height: 56px;
+  padding: 0 26px 0 24px;
+}
+
+.top-context {
+  flex: 0 0 auto;
+  height: 56px;
+}
+
+.top-context .project-strip {
+  display: flex;
+  width: auto;
+  height: 56px;
+  gap: 8px;
+  padding: 0;
+  align-items: center;
+}
+
+.top-context .project-strip label,
+.top-context .project-strip label:first-child,
+.top-context .project-strip label:nth-child(2) {
+  height: 34px;
+  width: auto;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+}
+
+.top-context .project-strip label:first-child {
+  min-width: 112px;
+}
+
+.top-context .project-strip label:nth-child(2) {
+  min-width: 214px;
+}
+
+.top-context .project-strip input,
+.top-context .project-strip select {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 32px 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.top-context .project-strip input:hover,
+.top-context .project-strip select:hover,
+.top-context .project-strip input:focus,
+.top-context .project-strip select:focus {
+  background: #f5f5f7;
+  box-shadow: none;
+}
+
+.video-title {
+  gap: 10px;
+}
+
+.video-title .icon-btn {
+  width: 30px;
+  height: 30px;
+  color: #424245;
+}
+
+.video-title strong {
+  max-width: 420px;
+  color: #1d1d1f;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title-actions {
+  gap: 8px;
+}
+
+.title-actions .icon-btn {
+  width: 32px;
+  height: 32px;
+  color: #424245;
+  border-radius: 50%;
+}
+
+.queue {
+  padding: 26px 20px;
+}
+
+.queue .section-title {
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0 0 14px;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.queue > .hint,
+.overlay-controls .hint {
+  color: #8a99aa;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.video-frames-title strong {
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.video-frames-title span {
+  margin-top: 2px;
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.video-frames-title .link-btn {
+  color: #0066cc;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.video-load-error {
+  left: 20px;
+  right: 20px;
+  bottom: 46px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.stitch-video-footer {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+}
+
+.stitch-video-footer .video-control-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.stitch-video-footer .plain-btn {
+  min-width: 68px;
+  height: 42px;
+  min-height: 42px;
+  border-color: #d2d2d7;
+  background: #ffffff;
+  color: #424245;
+}
+
+.stitch-video-footer .primary-btn {
+  min-width: 230px;
+  height: 46px;
+  min-height: 46px;
+  box-shadow: none;
+}
+
+.stitch-video-footer .primary-btn:disabled {
+  color: rgba(255, 255, 255, 0.8);
+  background: #c7c7cc;
+  border-color: #c7c7cc;
+}
