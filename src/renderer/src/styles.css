@@ -3869,3 +3869,49 @@ textarea {
   background: #c7c7cc;
   border-color: #c7c7cc;
 }
+
+/* Font pass: Inter for Latin/numbers, Microsoft YaHei UI for Chinese fallback */
+:root,
+body,
+button,
+input,
+select,
+textarea {
+  font-family: Inter, "Microsoft YaHei UI", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-feature-settings: "tnum" 0, "liga" 1;
+  text-rendering: geometricPrecision;
+}
+
+.top-context .project-strip input,
+.top-context .project-strip select,
+.video-title strong,
+.queue .section-title,
+.queue-row strong,
+.footer-status strong,
+.video-frames-title strong {
+  font-weight: 600;
+}
+
+.top-context .project-strip input,
+.top-context .project-strip select {
+  font-size: 13px;
+}
+
+.queue-row small,
+.footer-status small,
+.video-frames-title span,
+.chip-select > span,
+.date-field > span {
+  font-weight: 400;
+}
+
+.footer-status-icon {
+  width: 28px;
+  height: 28px;
+  box-shadow: none;
+}
+
+.footer-status-icon svg {
+  width: 15px;
+  height: 15px;
+}

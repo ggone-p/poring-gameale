@@ -295,7 +295,10 @@ function App(): JSX.Element {
     }
   }, [collapsed])
 
-  const canUpload = Boolean(config && queue.length && !uploading)
+  const allItemsReady = Boolean(
+    config && queue.length && queue.every((item) => isItemReady(item, config, schema.fields))
+  )
+  const canUpload = Boolean(config && queue.length && allItemsReady && !uploading)
 
   async function loadAssetLists(nextConfig: AppConfig): Promise<void> {
     const [logo, slogan, icon] = await Promise.all([
@@ -935,6 +938,7 @@ function App(): JSX.Element {
             <ImageQueue
               items={queue}
               config={config}
+              fields={schema.fields}
               selectedId={selectedItem?.id || ''}
               uploading={uploading}
               onSelect={setSelectedId}
@@ -963,11 +967,11 @@ function App(): JSX.Element {
           <footer className="footer">
             <div className="footer-status">
               <span className="footer-status-icon">
-                <CheckCircle2 size={18} />
+                {allItemsReady ? <CheckCircle2 size={18} /> : <ListChecks size={18} />}
               </span>
               <div>
                 <strong>{queue.length ? `${queue.length} 张图片待处理` : '等待添加图片'}</strong>
-                <small>{uploading ? '正在上传并重命名' : queue.length ? '检查图层和字段后开始上传' : '拖入图片或点击波利添加队列'}</small>
+                <small>{uploading ? '正在上传并重命名' : queue.length ? (allItemsReady ? '全部素材已准备，可以开始上传' : '补全字段和图层后开始上传') : '拖入图片或点击波利添加队列'}</small>
               </div>
             </div>
             <button className="primary-btn" disabled={!canUpload} onClick={uploadAll}>
@@ -1926,6 +1930,7 @@ function ChipSelect({
 function ImageQueue({
   items,
   config,
+  fields,
   selectedId,
   uploading,
   onSelect,
@@ -1933,6 +1938,7 @@ function ImageQueue({
 }: {
   items: QueueItem[]
   config: AppConfig
+  fields: BitableField[]
   selectedId: string
   uploading: boolean
   onSelect: (id: string) => void
@@ -1948,7 +1954,7 @@ function ImageQueue({
         <div className="empty">暂无图片</div>
       ) : (
         items.map((item) => {
-          const ready = isItemReady(item, config)
+          const ready = isItemReady(item, config, fields)
           return (
             <button
               className={`queue-row ${selectedId === item.id ? 'active' : ''} ${ready ? 'ready' : ''}`}
@@ -1979,9 +1985,10 @@ function ImageQueue({
   )
 }
 
-function isItemReady(item: QueueItem, config: AppConfig): boolean {
+function isItemReady(item: QueueItem, config: AppConfig, fields: BitableField[]): boolean {
   if (item.status === 'completed') return true
   if (item.status === 'failed') return false
+  const schemaReady = fields.length > 0
   const requiredSelections: Array<keyof UploadSelections> = [
     'language',
     'size',
@@ -1991,9 +1998,19 @@ function isItemReady(item: QueueItem, config: AppConfig): boolean {
     'creative',
     'completionDate'
   ]
-  const fieldsReady = requiredSelections.every((key) => Boolean(config.selections[key]))
+  const selectedTableReady = Boolean(config.feishu.tableId)
+  const fieldsReady = requiredSelections.every((key) => isSelectionValueReady(config, fields, key))
   const overlaysReady = overlayKinds.every((kind) => !item.overlays[kind].enabled || Boolean(item.overlays[kind].assetPath))
-  return fieldsReady && overlaysReady
+  return selectedTableReady && schemaReady && fieldsReady && overlaysReady
+}
+
+function isSelectionValueReady(config: AppConfig, fields: BitableField[], key: keyof UploadSelections): boolean {
+  const value = config.selections[key]?.trim()
+  if (!value) return false
+  const fieldName = config.fieldMapping[key]
+  const options = fieldName ? optionsForField(fields, fieldName) : []
+  if (!options.length) return true
+  return options.includes(value)
 }
 
 function statusText(status: ImageItem['status']): string {
