@@ -140,10 +140,12 @@ Settings are a focused utility panel:
 - Back button and title in top bar.
 - White cards on soft gray background.
 - Save/cancel fixed at bottom.
-- Workflow preferences expose three output directories:
-  1. Global output directory.
-  2. Current project output directory.
-  3. Current project video-frame output directory.
+- Workflow preferences expose four output directories:
+  1. Global fallback output directory.
+  2. ROC flat output directory.
+  3. ROR Europe/US flat output directory.
+  4. ROR flat output directory.
+- Video-frame exports use the selected table's project group directory first, then the global fallback.
 
 ## QA Checklist
 

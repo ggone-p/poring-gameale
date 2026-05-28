@@ -189,6 +189,14 @@ function App(): JSX.Element {
   const dragHoverTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
+    eatAudioRef.current = new Audio(poringEatSoundUrl)
+    eatAudioRef.current.preload = 'auto'
+    return () => {
+      eatAudioRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
     if (!config || autoSyncedRef.current) return
     if (!config.feishu.appId || !config.feishu.appSecret || !config.feishu.appToken) return
     autoSyncedRef.current = true
@@ -362,7 +370,7 @@ function App(): JSX.Element {
   }
 
   function playEatSound(): void {
-    const audio = eatAudioRef.current
+    const audio = eatAudioRef.current || new Audio(poringEatSoundUrl)
     if (!audio) return
     audio.currentTime = 0
     void audio.play().catch(() => undefined)
@@ -523,7 +531,14 @@ function App(): JSX.Element {
       const firstProjectTable = projectTables(next.tables)[0]
       if (config && firstProjectTable && !config.feishu.tableId) {
         const updated = await window.assetUploader.saveConfig({
-          feishu: { ...config.feishu, tableId: firstProjectTable.tableId }
+          feishu: { ...config.feishu, tableId: firstProjectTable.tableId },
+          workflow: {
+            ...config.workflow,
+            tableOutputGroups: {
+              ...config.workflow.tableOutputGroups,
+              [firstProjectTable.tableId]: outputGroupForProject(firstProjectTable.name)
+            }
+          }
         })
         setConfig(updated)
       }
@@ -538,7 +553,14 @@ function App(): JSX.Element {
     if (!config) return
     const table = schema.tables.find((candidate) => candidate.tableId === tableId)
     const nextConfig = await window.assetUploader.saveConfig({
-      feishu: { ...config.feishu, tableId }
+      feishu: { ...config.feishu, tableId },
+      workflow: {
+        ...config.workflow,
+        tableOutputGroups: {
+          ...config.workflow.tableOutputGroups,
+          [tableId]: outputGroupForProject(table?.name || '')
+        }
+      }
     })
     setConfig(applyProjectDefaults(nextConfig, schema.fields, table?.name || ''))
     setSyncing(true)
@@ -665,6 +687,21 @@ function App(): JSX.Element {
     } as Partial<AppConfig>)
   }
 
+  async function chooseGroupOutputDir(group: 'roc' | 'rorEu' | 'ror'): Promise<void> {
+    if (!config) return
+    const dir = await window.assetUploader.pickDirectory()
+    if (!dir) return
+    updateConfig({
+      workflow: {
+        ...config.workflow,
+        groupOutputDirs: {
+          ...config.workflow.groupOutputDirs,
+          [group]: dir
+        }
+      }
+    } as Partial<AppConfig>)
+  }
+
   async function chooseProjectOutputDir(): Promise<void> {
     if (!config || !config.feishu.tableId) return
     const dir = await window.assetUploader.pickDirectory()
@@ -768,7 +805,6 @@ function App(): JSX.Element {
         onPointerUp={handlePoringPointerUp}
         onPointerCancel={handlePoringPointerCancel}
       >
-        <audio ref={eatAudioRef} src={poringEatSoundUrl} preload="auto" />
         <div className="poring-shadow" />
         <img className="poring-image" src={activePoringFrame} alt="素材悬浮上传" />
       </div>
@@ -849,6 +885,7 @@ function App(): JSX.Element {
           onChooseOutputDir={chooseOutputDir}
           onChooseProjectOutputDir={chooseProjectOutputDir}
           onChooseProjectVideoOutputDir={chooseProjectVideoOutputDir}
+          onChooseGroupOutputDir={chooseGroupOutputDir}
         />
       ) : videoPanel ? (
         <VideoFramePickerStitch
@@ -1049,7 +1086,7 @@ function VideoFramePickerStitch({
                   const code = event.currentTarget.error?.code
                   const reason =
                     code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
-                      ? '当前视频编码无法被 Electron 直接预览，可以换 H.264 MP4 或后续接入自动转码。'
+                      ? '视频预览没有成功加载。请先确认文件没有被占用，或换一个常规 H.264 MP4 再试。'
                       : '视频加载失败，请重试或检查文件是否可播放。'
                   onLoadError(reason)
                 }}
@@ -1359,14 +1396,7 @@ function fileNameFromPath(path: string): string {
 }
 
 function fileUrlFromPath(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const parts = normalized.split('/')
-  const first = parts.shift() || ''
-  const encodedRest = parts.map((part) => encodeURIComponent(part)).join('/')
-  if (/^[A-Za-z]:$/.test(first)) {
-    return `file:///${first}/${encodedRest}`
-  }
-  return `file://${[first, encodedRest].filter(Boolean).join('/')}`
+  return encodeURI(`file:///${path.replace(/\\/g, '/')}`)
 }
 
 function formatTime(seconds: number): string {
@@ -1451,12 +1481,19 @@ function optionsForField(fields: BitableField[], fieldName: string): string[] {
 }
 
 function projectTables(tables: SchemaSnapshot['tables']): SchemaSnapshot['tables'] {
-  const allowedNames = ['ROR欧美视频', 'ROR欧美平面', 'ROC平面', 'Journey平面', 'ROR平面']
+  const allowedNames = ['ROR欧美平面', 'ROC平面', 'ROR平面']
   return tables.filter((table) => {
     const name = table.name.trim()
     const upper = name.toUpperCase()
     return allowedNames.some((allowed) => name.includes(allowed)) || upper.includes('GO')
   })
+}
+
+function outputGroupForProject(projectName: string): 'roc' | 'rorEu' | 'ror' {
+  const upper = projectName.toUpperCase()
+  if (projectName.includes('ROR欧美') || upper.includes('ROG')) return 'rorEu'
+  if (upper.includes('ROC')) return 'roc'
+  return 'ror'
 }
 
 function defaultLanguageForProject(projectName: string, options: string[]): string {
@@ -1547,7 +1584,8 @@ function SettingsPanel({
   onChooseDir,
   onChooseOutputDir,
   onChooseProjectOutputDir,
-  onChooseProjectVideoOutputDir
+  onChooseProjectVideoOutputDir,
+  onChooseGroupOutputDir
 }: {
   config: AppConfig
   schema: SchemaSnapshot
@@ -1560,12 +1598,15 @@ function SettingsPanel({
   onChooseOutputDir: () => void
   onChooseProjectOutputDir: () => void
   onChooseProjectVideoOutputDir: () => void
+  onChooseGroupOutputDir: (group: 'roc' | 'rorEu' | 'ror') => void
 }): JSX.Element {
   const fieldNames = schema.fields.map((field) => field.fieldName)
   const tables = projectTables(schema.tables)
-  const currentTable = tables.find((table) => table.tableId === config.feishu.tableId)
-  const projectOutputDir = config.feishu.tableId ? config.workflow.projectOutputDirs?.[config.feishu.tableId] || '' : ''
-  const projectVideoOutputDir = config.feishu.tableId ? config.workflow.projectVideoOutputDirs?.[config.feishu.tableId] || '' : ''
+  const outputRows: Array<{ group: 'roc' | 'rorEu' | 'ror'; label: string; hint: string }> = [
+    { group: 'roc', label: 'ROC平面输出目录', hint: '未设置，使用上方通用输出目录' },
+    { group: 'rorEu', label: 'ROR欧美平面输出目录', hint: '未设置，使用上方通用输出目录' },
+    { group: 'ror', label: 'ROR平面输出目录', hint: '未设置，使用上方通用输出目录' }
+  ]
   const fieldLabels: Record<string, string> = {
     language: '语言',
     size: '尺寸',
@@ -1654,24 +1695,19 @@ function SettingsPanel({
                   </button>
                 </div>
               </label>
-              <label>
-                当前项目输出目录{currentTable ? `（${currentTable.name}）` : ''}
-                <div className="settings-path-row">
-                  <input readOnly value={projectOutputDir || '未设置，使用上方通用输出目录'} />
-                  <button className="icon-btn" onClick={onChooseProjectOutputDir} type="button" disabled={!config.feishu.tableId}>
-                    <FolderOpen size={15} />
-                  </button>
-                </div>
-              </label>
-              <label>
-                当前项目视频截图输出目录{currentTable ? `（${currentTable.name}）` : ''}
-                <div className="settings-path-row">
-                  <input readOnly value={projectVideoOutputDir || '未设置，使用当前项目或通用输出目录'} />
-                  <button className="icon-btn" onClick={onChooseProjectVideoOutputDir} type="button" disabled={!config.feishu.tableId}>
-                    <FolderOpen size={15} />
-                  </button>
-                </div>
-              </label>
+              <div className="settings-path-group">
+                {outputRows.map((row) => (
+                  <label key={row.group}>
+                    {row.label}
+                    <div className="settings-path-row">
+                      <input readOnly value={config.workflow.groupOutputDirs?.[row.group] || row.hint} />
+                      <button className="icon-btn" onClick={() => onChooseGroupOutputDir(row.group)} type="button">
+                        <FolderOpen size={15} />
+                      </button>
+                    </div>
+                  </label>
+                ))}
+              </div>
               <label className="settings-check">
                 <input
                   type="checkbox"

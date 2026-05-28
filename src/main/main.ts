@@ -210,9 +210,14 @@ function collapseWindow(): void {
 }
 
 function outputDirectory(config: AppConfig, dateText: string, item?: ImageItem): string {
+  const outputGroup = config.workflow.tableOutputGroups?.[config.feishu.tableId]
+  const groupDir = outputGroup ? config.workflow.groupOutputDirs?.[outputGroup] || '' : ''
   const projectDir = config.workflow.projectOutputDirs?.[config.feishu.tableId] || ''
   const projectVideoDir = config.workflow.projectVideoOutputDirs?.[config.feishu.tableId] || ''
-  const baseDir = item?.sourceType === 'video-frame' ? projectVideoDir || projectDir || config.workflow.outputDir || '' : projectDir || config.workflow.outputDir || ''
+  const baseDir =
+    item?.sourceType === 'video-frame'
+      ? groupDir || projectVideoDir || projectDir || config.workflow.outputDir || ''
+      : groupDir || projectDir || config.workflow.outputDir || ''
   if (!baseDir) return ''
   if (!config.workflow.organizeByMonth) {
     mkdirSync(baseDir, { recursive: true })

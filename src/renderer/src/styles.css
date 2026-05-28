@@ -3287,3 +3287,409 @@ small {
 .stitch-video-footer .video-control-row {
   gap: 10px;
 }
+
+/* Apple utility correction pass: structure, type scale, and compact controls */
+* {
+  letter-spacing: 0 !important;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.app-shell {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 22px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.18), 0 8px 24px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.topbar {
+  height: 56px;
+  padding: 0 18px 0 0;
+  border-bottom: 1px solid #e8e8ed;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: saturate(180%) blur(18px);
+}
+
+.top-context {
+  height: 56px;
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+}
+
+.top-context .project-strip {
+  height: 56px;
+  align-items: stretch;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.top-context .project-strip label {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  color: transparent;
+  font-size: 0;
+  border-right: 1px solid #e8e8ed;
+}
+
+.top-context .project-strip label:first-child {
+  width: 170px;
+}
+
+.top-context .project-strip label:nth-child(2) {
+  width: 270px;
+}
+
+.top-context .project-strip input,
+.top-context .project-strip select {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0 42px 0 24px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  box-shadow: none;
+}
+
+.top-context .project-strip input:hover,
+.top-context .project-strip select:hover {
+  background: #f5f5f7;
+}
+
+.top-context .sync-chip {
+  display: none;
+}
+
+.top-actions {
+  gap: 10px;
+}
+
+.top-actions .icon-btn,
+.settings-header-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #424245;
+  background: transparent;
+}
+
+.top-actions .icon-btn:hover,
+.settings-header-actions .icon-btn:hover {
+  color: #1d1d1f;
+  background: #f5f5f7;
+}
+
+.content {
+  grid-template-columns: 200px minmax(0, 1fr);
+  background: #f5f5f7;
+}
+
+.queue {
+  width: 200px;
+  padding: 28px 16px;
+}
+
+.queue .section-title {
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.queue-row {
+  min-height: 60px;
+  padding: 8px;
+  border-radius: 12px;
+}
+
+.queue-row img,
+.queue-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+}
+
+.queue-row strong {
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.queue-row small {
+  color: #6e6e73;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.stitch-stage {
+  padding: 22px 28px 0;
+  background: #fbfbfd;
+}
+
+.stitch-stage-card {
+  gap: 20px;
+  padding: 0;
+  background: transparent;
+}
+
+.canvas-layout {
+  align-items: flex-start;
+  justify-content: center;
+  gap: 44px;
+}
+
+.canvas-stack {
+  width: min(420px, calc(100vh - 304px));
+  min-width: 360px;
+  border-radius: 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.1);
+}
+
+.preview {
+  border-radius: 16px;
+}
+
+.overlay-controls {
+  width: 280px;
+  padding-top: 2px;
+  gap: 14px;
+}
+
+.overlay-controls::before {
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.overlay-controls .overlay-row {
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.overlay-row .toggle {
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.overlay-controls .overlay-row select {
+  height: 38px;
+  padding: 0 36px 0 14px;
+  border-radius: 9px;
+  background: #f5f5f7;
+  font-size: 12px;
+}
+
+.stitch-stage-card > .field-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 18px;
+  width: 100%;
+  max-width: 756px;
+  margin: 4px auto 0;
+}
+
+.chip-select,
+.date-field {
+  gap: 4px;
+}
+
+.chip-select > span,
+.date-field > span {
+  color: #6e6e73;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.stitch-stage-card > .field-grid .chip-select input,
+.stitch-stage-card > .field-grid .chip-select select,
+.stitch-stage-card > .field-grid .date-field input {
+  height: 38px;
+  padding: 0 34px 0 14px;
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.footer {
+  height: 88px;
+  padding: 0 28px;
+  border-top: 1px solid #e8e8ed;
+}
+
+.footer-status {
+  gap: 12px;
+}
+
+.footer-status-icon {
+  width: 30px;
+  height: 30px;
+  color: #ffffff;
+  border-radius: 50%;
+}
+
+.footer-status strong {
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.footer-status small {
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.primary-btn,
+.footer .primary-btn,
+.stitch-video-footer .primary-btn {
+  min-height: 46px;
+  padding: 0 30px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.plain-btn {
+  min-height: 42px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.settings-panel {
+  background: #f5f5f7;
+}
+
+.settings-content {
+  width: min(680px, calc(100% - 64px));
+  gap: 22px;
+}
+
+.settings-card {
+  padding: 22px;
+  border-radius: 18px;
+}
+
+.settings-card-heading {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.settings-card-heading h2 {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.settings-card-heading p {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.settings-form {
+  gap: 14px;
+}
+
+.settings-path-group {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-panel label {
+  color: #424245;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.settings-path-row {
+  margin-top: 7px;
+}
+
+.settings-panel input,
+.settings-panel select {
+  height: 40px;
+  border-radius: 11px;
+  font-size: 13px;
+}
+
+.settings-actions {
+  height: 80px;
+  padding: 0 24px;
+}
+
+.video-picker {
+  background: #fbfbfd;
+}
+
+.video-picker-body {
+  padding: 24px 28px 16px;
+}
+
+.video-top-grid {
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 44px;
+  align-items: start;
+}
+
+.video-left {
+  align-items: center;
+}
+
+.video-canvas {
+  width: min(480px, calc(100vh - 320px), 100%);
+  min-width: 380px;
+  border-radius: 12px;
+}
+
+.video-frames {
+  padding-top: 0;
+}
+
+.video-frames-title strong {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.video-empty {
+  min-height: 180px;
+}
+
+.video-timeline {
+  height: 92px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.timeline-strip {
+  height: 68px;
+}
+
+.video-footer {
+  height: 80px;
+  padding: 0 24px;
+}
+
+.stitch-video-footer .video-control-row {
+  margin-left: auto;
+}

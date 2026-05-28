@@ -38,6 +38,8 @@ export interface WorkflowPreferences {
   outputDir: string
   projectOutputDirs: Record<string, string>
   projectVideoOutputDirs: Record<string, string>
+  groupOutputDirs: Record<'roc' | 'rorEu' | 'ror', string>
+  tableOutputGroups: Record<string, 'roc' | 'rorEu' | 'ror'>
   organizeByMonth: boolean
   launchAtLogin: boolean
   keepInBackground: boolean
@@ -173,6 +175,12 @@ export const defaultWorkflow: WorkflowPreferences = {
   outputDir: '',
   projectOutputDirs: {},
   projectVideoOutputDirs: {},
+  groupOutputDirs: {
+    roc: '',
+    rorEu: '',
+    ror: ''
+  },
+  tableOutputGroups: {},
   organizeByMonth: true,
   launchAtLogin: true,
   keepInBackground: true
