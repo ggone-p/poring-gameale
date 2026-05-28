@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { autoUpdater } from 'electron-updater'
+import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -21,6 +21,7 @@ import type {
 } from '../shared/types'
 import { defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflow } from '../shared/types'
 
+const { autoUpdater } = electronUpdater
 const DEFAULT_APP_TOKEN = 'FBGWbqE7YaWtlBsFr5rc8L4vnPh'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
@@ -240,6 +241,7 @@ function createWindow(): void {
     alwaysOnTop: true,
     skipTaskbar: true,
     title: '素材悬浮上传',
+    icon: trayIconPath(),
     transparent: true,
     backgroundColor: '#00000000',
     webPreferences: {
