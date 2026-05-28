@@ -91,6 +91,14 @@ type VideoPanelState = {
   frames: VideoFrameSelection[]
 }
 
+type UpdateState = {
+  phase: string
+  status: string
+  percent: number
+}
+
+const DEFAULT_ACCENT = '#fd7e8a'
+
 function cloneOverlays(overlays: OverlayState): OverlayState {
   return {
     logo: { ...overlays.logo, scale: overlayDefaultScale.logo },
@@ -109,6 +117,7 @@ function App(): JSX.Element {
   const [syncing, setSyncing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [updateStatus, setUpdateStatus] = useState('')
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: 'idle', status: '', percent: 0 })
   const [videoPanel, setVideoPanel] = useState<VideoPanelState | null>(null)
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
@@ -126,8 +135,16 @@ function App(): JSX.Element {
 
   useEffect(() => {
     window.assetUploader.getConfig().then((next) => {
+      const accentColor =
+        !next.workflow.accentColor || next.workflow.accentColor.toLowerCase() === '#0066cc'
+          ? DEFAULT_ACCENT
+          : next.workflow.accentColor
       const withDate = {
         ...next,
+        workflow: {
+          ...next.workflow,
+          accentColor
+        },
         selections: {
           ...next.selections,
           completionDate: todayString()
@@ -145,8 +162,19 @@ function App(): JSX.Element {
 
   useEffect(() => {
     if (!config) return
-    document.documentElement.style.setProperty('--accent-color', config.workflow.accentColor || '#0066cc')
+    document.documentElement.style.setProperty('--accent-color', config.workflow.accentColor || DEFAULT_ACCENT)
   }, [config?.workflow.accentColor])
+
+  useEffect(() => {
+    void window.assetUploader.getUpdateState().then((state) => {
+      setUpdateState(state)
+      setUpdateStatus(state.status)
+    })
+    return window.assetUploader.onUpdateStatus((state) => {
+      setUpdateState(state)
+      setUpdateStatus(state.status)
+    })
+  }, [])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -681,9 +709,13 @@ function App(): JSX.Element {
   async function checkUpdatesNow(): Promise<void> {
     try {
       setUpdateStatus('正在检查更新')
-      setUpdateStatus(await window.assetUploader.checkForUpdates())
+      setUpdateState({ phase: 'checking', status: '正在检查更新', percent: 0 })
+      const status = await window.assetUploader.checkForUpdates()
+      setUpdateStatus(status)
     } catch (error) {
-      setUpdateStatus(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdateStatus(message)
+      setUpdateState({ phase: 'error', status: message, percent: 0 })
     }
   }
 
@@ -896,6 +928,8 @@ function App(): JSX.Element {
         </div>
       </header>
 
+      <UpdateToast state={updateState} onInstall={() => void window.assetUploader.installUpdate()} />
+
       {settingsOpen ? (
         <SettingsPanel
           config={config}
@@ -999,6 +1033,31 @@ function App(): JSX.Element {
         </>
       )}
     </div>
+  )
+}
+
+function UpdateToast({ state, onInstall }: { state: UpdateState; onInstall: () => void }): JSX.Element | null {
+  if (!state.status || state.phase === 'idle' || state.phase === 'not-available') return null
+  const isDownloaded = state.phase === 'downloaded'
+  const isDownloading = state.phase === 'downloading'
+  const isError = state.phase === 'error'
+  return (
+    <aside className={`update-toast ${isError ? 'error' : ''}`}>
+      <div>
+        <strong>{isDownloaded ? '新版本已准备好' : '在线更新'}</strong>
+        <span>{state.status}</span>
+        {isDownloading && (
+          <i>
+            <b style={{ width: `${Math.max(4, Math.min(100, state.percent || 0))}%` }} />
+          </i>
+        )}
+      </div>
+      {isDownloaded && (
+        <button className="primary-btn compact" onClick={onInstall} type="button">
+          重启安装
+        </button>
+      )}
+    </aside>
   )
 }
 
@@ -1794,13 +1853,13 @@ function SettingsPanel({
                   <input
                     className="color-input"
                     type="color"
-                    value={config.workflow.accentColor || '#0066cc'}
+                    value={config.workflow.accentColor || DEFAULT_ACCENT}
                     onChange={(event) =>
                       onChange({ workflow: { ...config.workflow, accentColor: event.target.value } } as Partial<AppConfig>)
                     }
                   />
                   <input
-                    value={config.workflow.accentColor || '#0066cc'}
+                    value={config.workflow.accentColor || DEFAULT_ACCENT}
                     onChange={(event) =>
                       onChange({ workflow: { ...config.workflow, accentColor: event.target.value } } as Partial<AppConfig>)
                     }

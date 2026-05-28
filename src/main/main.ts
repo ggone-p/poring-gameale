@@ -25,6 +25,10 @@ const { autoUpdater } = electronUpdater
 const DEFAULT_APP_TOKEN = 'FBGWbqE7YaWtlBsFr5rc8L4vnPh'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
+const EXPANDED_WIDTH = 1080
+const EXPANDED_HEIGHT = 824
+const INNER_WIDTH = 1024
+const INNER_HEIGHT = 768
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -33,6 +37,12 @@ let isQuitting = false
 let mediaServer: Server | null = null
 let mediaServerPort = 0
 let updateStatus = '尚未检查更新'
+
+let updateState = {
+  phase: 'idle',
+  status: updateStatus,
+  percent: 0
+}
 
 function trayIconPath(): string {
   if (app.isPackaged) return join(process.resourcesPath, 'tray-icon.png')
@@ -45,6 +55,12 @@ function applyLoginItemSettings(config: AppConfig): void {
     path: process.execPath,
     args: app.isPackaged ? [] : [app.getAppPath()]
   })
+}
+
+function publishUpdateState(phase: string, status: string, percent = 0): void {
+  updateStatus = status
+  updateState = { phase, status, percent }
+  mainWindow?.webContents.send('updates:status', updateState)
 }
 
 function configPath(): string {
@@ -230,8 +246,8 @@ function mediaUrlForPath(filePath: string): string {
 function createWindow(): void {
   const config = readConfig()
   mainWindow = new BrowserWindow({
-    width: config.window.collapsed ? 118 : 1024,
-    height: config.window.collapsed ? 118 : 768,
+    width: config.window.collapsed ? 118 : EXPANDED_WIDTH,
+    height: config.window.collapsed ? 118 : EXPANDED_HEIGHT,
     x: config.window.x,
     y: config.window.y,
     minWidth: 112,
@@ -250,6 +266,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     }
+  })
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow?.webContents.send('updates:status', updateState)
   })
 
   mainWindow.on('moved', () => {
@@ -297,8 +317,8 @@ function createTray(): void {
 function expandWindow(): void {
   if (!mainWindow) return
   mainWindow.setResizable(true)
-  mainWindow.setSize(1024, 768, true)
-  mainWindow.setMinimumSize(900, 680)
+  mainWindow.setSize(EXPANDED_WIDTH, EXPANDED_HEIGHT, true)
+  mainWindow.setMinimumSize(INNER_WIDTH, INNER_HEIGHT)
   mainWindow.webContents.send('window:state', 'expanded')
   saveConfig({ window: { ...readConfig().window, collapsed: false } })
 }
@@ -730,6 +750,22 @@ async function checkForUpdates(): Promise<string> {
   return updateStatus
 }
 
+async function checkForUpdatesOnline(): Promise<string> {
+  const config = readConfig()
+  if (!config.workflow.updateUrl) {
+    publishUpdateState('error', '未设置更新源地址')
+    return updateStatus
+  }
+  if (!app.isPackaged) {
+    publishUpdateState('idle', '开发模式不会真正下载更新，打包后会使用该更新源')
+    return updateStatus
+  }
+  configureAutoUpdater(config)
+  publishUpdateState('checking', '正在检查更新')
+  await autoUpdater.checkForUpdatesAndNotify()
+  return updateStatus
+}
+
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.gamealestudio.asset-uploader')
   await startMediaServer()
@@ -742,8 +778,8 @@ app.whenReady().then(async () => {
   createWindow()
   createTray()
   if (config.workflow.autoCheckUpdates && config.workflow.updateUrl) {
-    void checkForUpdates().catch((error) => {
-      updateStatus = error instanceof Error ? error.message : String(error)
+    void checkForUpdatesOnline().catch((error) => {
+      publishUpdateState('error', error instanceof Error ? error.message : String(error))
     })
   }
 })
@@ -786,9 +822,22 @@ autoUpdater.on('error', (error) => {
   updateStatus = error.message
 })
 
+autoUpdater.on('checking-for-update', () => publishUpdateState('checking', '正在检查更新'))
+autoUpdater.on('update-available', () => publishUpdateState('available', '发现新版本，正在下载'))
+autoUpdater.on('update-not-available', () => publishUpdateState('not-available', '已经是最新版本'))
+autoUpdater.on('download-progress', (progress) =>
+  publishUpdateState('downloading', `正在下载更新 ${Math.round(progress.percent)}%`, Math.round(progress.percent))
+)
+autoUpdater.on('update-downloaded', () => publishUpdateState('downloaded', '更新已下载，重启软件后安装', 100))
+autoUpdater.on('error', (error) => publishUpdateState('error', error.message))
+
 ipcMain.handle('config:get', () => readConfig())
 ipcMain.handle('config:save', (_, patch: Partial<AppConfig>) => saveConfig(patch))
-ipcMain.handle('updates:check', async () => checkForUpdates())
+ipcMain.handle('updates:state', () => updateState)
+ipcMain.handle('updates:check', async () => checkForUpdatesOnline())
+ipcMain.handle('updates:install', () => {
+  if (app.isPackaged) autoUpdater.quitAndInstall()
+})
 ipcMain.handle('files:pick-images', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],

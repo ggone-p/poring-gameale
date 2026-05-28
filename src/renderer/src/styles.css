@@ -4025,3 +4025,222 @@ textarea {
   font-size: 12px;
   line-height: 18px;
 }
+
+/* Final visual correction: rounded transparent window, theme-linked footer, online update toast */
+:root {
+  --accent-color: #fd7e8a;
+  --apple-blue: var(--accent-color);
+  --apple-blue-focus: color-mix(in srgb, var(--accent-color) 92%, #000000);
+  --accent-soft: color-mix(in srgb, var(--accent-color) 12%, #ffffff);
+  --accent-softer: color-mix(in srgb, var(--accent-color) 7%, #ffffff);
+}
+
+.shell {
+  width: calc(100vw - 56px);
+  height: calc(100vh - 56px);
+  margin: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 22px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.22),
+    0 14px 34px rgba(0, 0, 0, 0.14),
+    0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.video-shell {
+  border-radius: 22px;
+}
+
+.footer,
+.video-footer {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.primary-btn,
+.footer .primary-btn,
+.stitch-video-footer .primary-btn,
+.capture-btn,
+.overlay-row .toggle input[type='checkbox']:checked,
+.resize-corner,
+.timeline-marker,
+.timeline-marker::before {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.primary-btn,
+.footer .primary-btn,
+.stitch-video-footer .primary-btn {
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--accent-color) 24%, transparent);
+}
+
+.primary-btn:hover:not(:disabled),
+.footer .primary-btn:hover:not(:disabled),
+.stitch-video-footer .primary-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-color) 92%, #000000);
+  border-color: color-mix(in srgb, var(--accent-color) 92%, #000000);
+}
+
+.primary-btn:disabled,
+.footer .primary-btn:disabled,
+.stitch-video-footer .primary-btn:disabled {
+  color: rgba(255, 255, 255, 0.76);
+  background: #c7c7cc;
+  border-color: #c7c7cc;
+  box-shadow: none;
+}
+
+.secondary-btn:hover,
+.ghost-btn:hover,
+.plain-btn:hover,
+.icon-btn:hover {
+  color: var(--accent-color);
+  border-color: color-mix(in srgb, var(--accent-color) 30%, transparent);
+  background: var(--accent-softer);
+}
+
+.footer-status-icon,
+.footer-status-icon.ready {
+  color: #ffffff;
+  background: var(--accent-color);
+}
+
+.footer-status-icon.pending {
+  color: var(--accent-color);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+}
+
+.video-frames-title .link-btn,
+.link-btn,
+.queue-row .ready-icon,
+.queue-row .ok,
+.video-frame-row strong {
+  color: var(--accent-color);
+}
+
+.queue-row.active,
+.queue-row.ready:not(.active),
+.video-frame-row.active,
+.timeline-thumb.active {
+  border-color: color-mix(in srgb, var(--accent-color) 38%, transparent);
+  background: var(--accent-softer);
+}
+
+.overlay-handle {
+  border-color: var(--accent-color);
+}
+
+.settings-panel .color-input,
+.settings-panel input:focus,
+.settings-panel select:focus,
+.chip-select input:focus,
+.chip-select select:focus,
+.date-field input:focus,
+.overlay-row select:focus {
+  border-color: var(--accent-color);
+}
+
+.settings-panel input:focus,
+.settings-panel select:focus,
+.chip-select input:focus,
+.chip-select select:focus,
+.date-field input:focus,
+.overlay-row select:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 15%, transparent);
+}
+
+.settings-check input,
+.overlay-row input[type='range'] {
+  accent-color: var(--accent-color);
+}
+
+.stitch-video-footer {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+}
+
+.stitch-video-footer .plain-btn {
+  min-width: 70px;
+  height: 42px;
+  border-radius: 999px;
+  border-color: #d2d2d7;
+  background: #ffffff;
+  color: #424245;
+}
+
+.stitch-video-footer .primary-btn {
+  min-width: 230px;
+  height: 46px;
+  border-radius: 999px;
+}
+
+.stitch-video-footer .capture-btn {
+  min-width: 230px;
+}
+
+.update-toast {
+  position: absolute;
+  right: 30px;
+  bottom: 104px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 360px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 20%, transparent);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.14);
+  backdrop-filter: saturate(180%) blur(18px);
+}
+
+.update-toast.error {
+  border-color: rgba(186, 26, 26, 0.2);
+}
+
+.update-toast strong,
+.update-toast span {
+  display: block;
+}
+
+.update-toast strong {
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.update-toast span {
+  margin-top: 2px;
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.update-toast i {
+  display: block;
+  width: 220px;
+  height: 5px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f0f0f3;
+}
+
+.update-toast i b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-color);
+}
+
+.update-toast .compact {
+  min-height: 34px;
+  padding: 0 16px;
+  white-space: nowrap;
+  box-shadow: none;
+}

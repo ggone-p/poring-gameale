@@ -184,7 +184,7 @@ export const defaultWorkflow: WorkflowPreferences = {
     ror: ''
   },
   tableOutputGroups: {},
-  accentColor: '#0066cc',
+  accentColor: '#fd7e8a',
   updateUrl: '',
   autoCheckUpdates: true,
   organizeByMonth: true,
