@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -30,6 +31,7 @@ let tenantTokenCache: { token: string; expiresAt: number } | null = null
 let isQuitting = false
 let mediaServer: Server | null = null
 let mediaServerPort = 0
+let updateStatus = '尚未检查更新'
 
 function trayIconPath(): string {
   if (app.isPackaged) return join(process.resourcesPath, 'tray-icon.png')
@@ -120,6 +122,17 @@ function saveConfig(patch: Partial<AppConfig>): AppConfig {
   writeFileSync(configPath(), JSON.stringify(next, null, 2), 'utf8')
   if (app.isReady()) applyLoginItemSettings(next)
   return next
+}
+
+function configureAutoUpdater(config = readConfig()): void {
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  if (config.workflow.updateUrl) {
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: config.workflow.updateUrl
+    })
+  }
 }
 
 function todayString(): string {
@@ -699,15 +712,38 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
   }
 }
 
+async function checkForUpdates(): Promise<string> {
+  const config = readConfig()
+  if (!config.workflow.updateUrl) {
+    updateStatus = '未设置更新源地址'
+    return updateStatus
+  }
+  if (!app.isPackaged) {
+    updateStatus = '开发模式不会真正下载更新，打包后会使用该更新源'
+    return updateStatus
+  }
+  configureAutoUpdater(config)
+  updateStatus = '正在检查更新'
+  await autoUpdater.checkForUpdatesAndNotify()
+  return updateStatus
+}
+
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.gamealestudio.asset-uploader')
   await startMediaServer()
-  applyLoginItemSettings(readConfig())
+  const config = readConfig()
+  configureAutoUpdater(config)
+  applyLoginItemSettings(config)
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
   createWindow()
   createTray()
+  if (config.workflow.autoCheckUpdates && config.workflow.updateUrl) {
+    void checkForUpdates().catch((error) => {
+      updateStatus = error instanceof Error ? error.message : String(error)
+    })
+  }
 })
 
 app.on('activate', () => {
@@ -724,8 +760,33 @@ app.on('window-all-closed', () => {
   if (!isQuitting) createWindow()
 })
 
+autoUpdater.on('checking-for-update', () => {
+  updateStatus = '正在检查更新'
+})
+
+autoUpdater.on('update-available', () => {
+  updateStatus = '发现新版本，正在下载'
+})
+
+autoUpdater.on('update-not-available', () => {
+  updateStatus = '已经是最新版本'
+})
+
+autoUpdater.on('download-progress', (progress) => {
+  updateStatus = `正在下载更新 ${Math.round(progress.percent)}%`
+})
+
+autoUpdater.on('update-downloaded', () => {
+  updateStatus = '更新已下载，重启软件后安装'
+})
+
+autoUpdater.on('error', (error) => {
+  updateStatus = error.message
+})
+
 ipcMain.handle('config:get', () => readConfig())
 ipcMain.handle('config:save', (_, patch: Partial<AppConfig>) => saveConfig(patch))
+ipcMain.handle('updates:check', async () => checkForUpdates())
 ipcMain.handle('files:pick-images', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],

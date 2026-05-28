@@ -108,6 +108,7 @@ function App(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string>('')
   const [syncing, setSyncing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState('')
   const [videoPanel, setVideoPanel] = useState<VideoPanelState | null>(null)
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
@@ -141,6 +142,11 @@ function App(): JSX.Element {
     if (!config) return
     void loadAssetLists(config)
   }, [config?.assetLibrary.logoDir, config?.assetLibrary.sloganDir, config?.assetLibrary.iconDir])
+
+  useEffect(() => {
+    if (!config) return
+    document.documentElement.style.setProperty('--accent-color', config.workflow.accentColor || '#0066cc')
+  }, [config?.workflow.accentColor])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -672,6 +678,15 @@ function App(): JSX.Element {
     setSettingsOpen(false)
   }
 
+  async function checkUpdatesNow(): Promise<void> {
+    try {
+      setUpdateStatus('正在检查更新')
+      setUpdateStatus(await window.assetUploader.checkForUpdates())
+    } catch (error) {
+      setUpdateStatus(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async function chooseAssetDir(kind: OverlayKind): Promise<void> {
     if (!config) return
     const dir = await window.assetUploader.pickDirectory()
@@ -895,6 +910,8 @@ function App(): JSX.Element {
           onChooseProjectOutputDir={chooseProjectOutputDir}
           onChooseProjectVideoOutputDir={chooseProjectVideoOutputDir}
           onChooseGroupOutputDir={chooseGroupOutputDir}
+          updateStatus={updateStatus}
+          onCheckUpdates={checkUpdatesNow}
         />
       ) : videoPanel ? (
         <VideoFramePickerStitch
@@ -966,7 +983,7 @@ function App(): JSX.Element {
 
           <footer className="footer">
             <div className="footer-status">
-              <span className="footer-status-icon">
+              <span className={`footer-status-icon ${allItemsReady ? 'ready' : 'pending'}`}>
                 {allItemsReady ? <CheckCircle2 size={18} /> : <ListChecks size={18} />}
               </span>
               <div>
@@ -1597,7 +1614,9 @@ function SettingsPanel({
   onChooseOutputDir,
   onChooseProjectOutputDir,
   onChooseProjectVideoOutputDir,
-  onChooseGroupOutputDir
+  onChooseGroupOutputDir,
+  updateStatus,
+  onCheckUpdates
 }: {
   config: AppConfig
   schema: SchemaSnapshot
@@ -1611,6 +1630,8 @@ function SettingsPanel({
   onChooseProjectOutputDir: () => void
   onChooseProjectVideoOutputDir: () => void
   onChooseGroupOutputDir: (group: 'roc' | 'rorEu' | 'ror') => void
+  updateStatus: string
+  onCheckUpdates: () => void
 }): JSX.Element {
   const fieldNames = schema.fields.map((field) => field.fieldName)
   const tables = projectTables(schema.tables)
@@ -1750,6 +1771,63 @@ function SettingsPanel({
                 />
                 <span>关闭窗口时常驻后台</span>
               </label>
+            </div>
+          </section>
+
+          <section className="settings-card">
+            <div className="settings-card-heading">
+              <span className="settings-card-icon">
+                <RefreshCw size={17} />
+              </span>
+              <div>
+                <h2>外观与更新</h2>
+                <p>调整点缀色，并配置团队内部更新源</p>
+              </div>
+              <button className="secondary-btn" onClick={onCheckUpdates} type="button">
+                检查更新
+              </button>
+            </div>
+            <div className="settings-form">
+              <label>
+                点缀色
+                <div className="color-setting-row">
+                  <input
+                    className="color-input"
+                    type="color"
+                    value={config.workflow.accentColor || '#0066cc'}
+                    onChange={(event) =>
+                      onChange({ workflow: { ...config.workflow, accentColor: event.target.value } } as Partial<AppConfig>)
+                    }
+                  />
+                  <input
+                    value={config.workflow.accentColor || '#0066cc'}
+                    onChange={(event) =>
+                      onChange({ workflow: { ...config.workflow, accentColor: event.target.value } } as Partial<AppConfig>)
+                    }
+                  />
+                </div>
+              </label>
+              <label>
+                更新源地址
+                <input
+                  placeholder="例如 https://updates.example.com/poring-gameale/"
+                  value={config.workflow.updateUrl}
+                  onChange={(event) =>
+                    onChange({ workflow: { ...config.workflow, updateUrl: event.target.value } } as Partial<AppConfig>)
+                  }
+                />
+              </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={config.workflow.autoCheckUpdates}
+                  onChange={(event) =>
+                    onChange({ workflow: { ...config.workflow, autoCheckUpdates: event.target.checked } } as Partial<AppConfig>)
+                  }
+                />
+                <span>启动时自动检查更新</span>
+              </label>
+              <p className="settings-note">{updateStatus || '内部更新源配置后，打包版本会自动检查最新安装包。'}</p>
             </div>
           </section>
 
@@ -2015,7 +2093,7 @@ function isSelectionValueReady(config: AppConfig, fields: BitableField[], key: k
 
 function statusText(status: ImageItem['status']): string {
   return {
-    waiting: '等待上传',
+    waiting: '内容待填写',
     'creating-record': '创建记录中',
     processing: '处理中',
     uploading: '上传中',

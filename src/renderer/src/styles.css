@@ -3915,3 +3915,113 @@ textarea {
   width: 15px;
   height: 15px;
 }
+
+/* Theme controls and rounded window shadow */
+:root {
+  --accent-color: #0066cc;
+}
+
+.shell {
+  position: relative;
+  width: calc(100vw - 28px);
+  height: calc(100vh - 28px);
+  margin: 14px;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow:
+    0 26px 64px rgba(0, 0, 0, 0.2),
+    0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
+.video-shell {
+  border-radius: 22px;
+}
+
+.primary-btn,
+.footer .primary-btn,
+.stitch-video-footer .primary-btn,
+.overlay-row .toggle input[type='checkbox']:checked,
+.resize-corner,
+.timeline-marker,
+.timeline-marker::before {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.primary-btn:hover:not(:disabled),
+.footer .primary-btn:hover:not(:disabled),
+.stitch-video-footer .primary-btn:hover:not(:disabled) {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  filter: brightness(0.96);
+}
+
+.queue-row.active,
+.queue-row.ready:not(.active),
+.video-frame-row.active,
+.timeline-thumb.active {
+  border-color: color-mix(in srgb, var(--accent-color) 38%, transparent);
+  background: color-mix(in srgb, var(--accent-color) 8%, white);
+}
+
+.queue-row .ready-icon,
+.queue-row .ok,
+.video-frame-row strong,
+.video-frames-title .link-btn,
+.link-btn {
+  color: var(--accent-color);
+}
+
+.footer-status-icon.ready {
+  color: #ffffff;
+  background: var(--accent-color);
+}
+
+.footer-status-icon.pending {
+  color: #6e6e73;
+  background: #eef0f4;
+}
+
+.settings-card-icon,
+.sync-chip {
+  color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 10%, white);
+}
+
+.settings-panel input:focus,
+.settings-panel select:focus,
+.chip-select input:focus,
+.chip-select select:focus,
+.date-field input:focus,
+.overlay-row select:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 16%, transparent);
+}
+
+.settings-check input,
+.overlay-row input[type='range'] {
+  accent-color: var(--accent-color);
+}
+
+.color-setting-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-top: 7px;
+}
+
+.settings-panel .color-input {
+  width: 44px;
+  min-width: 44px;
+  height: 40px;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.settings-note {
+  margin: 0;
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 18px;
+}

@@ -22,6 +22,7 @@ const api = {
   listAssets: (dir: string): Promise<Array<{ path: string; name: string }>> => ipcRenderer.invoke('files:list-assets', dir),
   syncSchema: (tableId?: string): Promise<SchemaSnapshot> => ipcRenderer.invoke('feishu:sync-schema', tableId),
   uploadOne: (request: UploadRequest): Promise<UploadResult> => ipcRenderer.invoke('upload:one', request),
+  checkForUpdates: (): Promise<string> => ipcRenderer.invoke('updates:check'),
   collapse: (): Promise<void> => ipcRenderer.invoke('window:collapse'),
   expand: (): Promise<void> => ipcRenderer.invoke('window:expand'),
   getWindowPosition: (): Promise<{ x: number; y: number }> => ipcRenderer.invoke('window:get-position'),

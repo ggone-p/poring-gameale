@@ -10,39 +10,44 @@
 
 所以飞书凭证、素材库路径、输出目录等本地设置不会因为覆盖安装丢失。
 
-## 当前推荐流程：内部手动更新
+## 当前可用流程：内部更新源
 
-1. 修改代码并确认测试通过。
-2. 提升 `package.json` 里的 `version`，例如 `0.1.0` -> `0.1.1`。
-3. 执行打包：
+同事不需要 GitHub。维护者只需要维护一个公司内部可访问的静态下载目录。
+
+推荐目录示例：
+
+`https://updates.example.com/poring-gameale/`
+
+也可以用 NAS 或内网对象存储，只要电脑能通过 HTTP/HTTPS 访问即可。
+
+1. 在软件设置页填写“更新源地址”，例如：
+
+   `https://updates.example.com/poring-gameale/`
+
+2. 修改代码并确认测试通过。
+3. 提升 `package.json` 里的 `version`，例如 `0.1.0` -> `0.1.1`。
+4. 执行打包：
 
    ```powershell
    npm run dist
    ```
 
-4. 把 `release` 目录里的安装包发到内部渠道，例如飞书群、NAS、内网网盘。
-5. 同事关闭软件后直接运行新版安装包，覆盖安装即可。
-
-这个流程最稳，不依赖同事登录 GitHub。
-
-## 后续自动更新流程
-
-如果希望软件自己提示更新，不要使用 Private GitHub Releases 直接给同事更新，因为同事没有仓库权限，除非把访问 token 打进软件里，这不安全。
-
-推荐使用内部 HTTP 更新源：
-
-1. 准备一个只有公司内可访问的静态目录，例如：
-
-   `https://updates.your-company.com/poring-gameale/`
-
-2. 每次 `npm run dist` 后，把这些文件上传到该目录：
+5. 把 `release` 目录里的这些文件上传到更新源目录：
 
    - `latest.yml`
-   - `*.exe`
-   - `*.exe.blockmap`
+   - `素材悬浮上传 Setup x.x.x.exe`
+   - `素材悬浮上传 Setup x.x.x.exe.blockmap`
 
-3. 软件配置自动更新地址为这个内部 HTTP 地址。
-4. 同事的软件启动后检查这个地址，有新版本就下载更新。
+6. 同事的软件启动后会自动检查更新，也可以在设置页手动点击“检查更新”。
+7. 下载完成后，退出并重新打开软件会安装新版。
+
+## 备用流程：手动覆盖安装
+
+如果更新源还没有准备好，就继续把 `release` 目录里的安装包发到飞书群或 NAS。同事关闭软件后直接运行新版安装包，覆盖安装即可。
+
+## 为什么不直接用 Private GitHub
+
+Private GitHub Releases 需要访问权限。同事没有 GitHub 权限时，软件必须内置 token 才能下载，这会把 token 暴露给安装包用户，不安全。
 
 ## 注意事项
 

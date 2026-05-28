@@ -40,6 +40,9 @@ export interface WorkflowPreferences {
   projectVideoOutputDirs: Record<string, string>
   groupOutputDirs: Record<'roc' | 'rorEu' | 'ror', string>
   tableOutputGroups: Record<string, 'roc' | 'rorEu' | 'ror'>
+  accentColor: string
+  updateUrl: string
+  autoCheckUpdates: boolean
   organizeByMonth: boolean
   launchAtLogin: boolean
   keepInBackground: boolean
@@ -181,6 +184,9 @@ export const defaultWorkflow: WorkflowPreferences = {
     ror: ''
   },
   tableOutputGroups: {},
+  accentColor: '#0066cc',
+  updateUrl: '',
+  autoCheckUpdates: true,
   organizeByMonth: true,
   launchAtLogin: true,
   keepInBackground: true
