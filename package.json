@@ -1,6 +1,6 @@
 {
   "name": "feishu-asset-floating-uploader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A floating Windows desktop uploader for Feishu Bitable creative assets.",
   "productName": "素材悬浮上传",
   "main": "out/main/main.js",
@@ -19,6 +19,7 @@
     "directories": {
       "output": "release"
     },
+    "artifactName": "poring-gameale-${version}-${arch}.${ext}",
     "files": [
       "out/**/*",
       "package.json"
