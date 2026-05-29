@@ -32,8 +32,8 @@ const DEFAULT_ICON_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软�
 const APP_DISPLAY_NAME = '波利AI图助手'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
-const EXPANDED_WIDTH = 1080
-const EXPANDED_HEIGHT = 824
+const EXPANDED_WIDTH = 1024
+const EXPANDED_HEIGHT = 768
 const INNER_WIDTH = 1024
 const INNER_HEIGHT = 768
 const SOFTWARE_DESIGNER = '方攀'
@@ -793,9 +793,16 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
     try {
       const fileToken = await uploadMedia(config, targetPath, uploadName)
       await updateRecord(config, created.recordId, {
-        [config.fieldMapping.finalAsset]: [{ file_token: fileToken }],
-        [config.fieldMapping.progress]: '已完成all'
+        [config.fieldMapping.finalAsset]: [{ file_token: fileToken }]
       })
+      try {
+        await updateRecord(config, created.recordId, {
+          [config.fieldMapping.progress]: '已完成all'
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        uploadWarning = `成品已上传，进展字段未更新：${message}`
+      }
     } catch (error) {
       uploadWarning = error instanceof Error ? error.message : String(error)
       try {
@@ -818,7 +825,7 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
       generatedName,
       recordId: created.recordId,
       outputPath: targetPath,
-      error: uploadWarning ? `本地已完成，飞书附件未上传：${uploadWarning}` : undefined
+      error: uploadWarning ? `本地已完成，飞书回写提醒：${uploadWarning}` : undefined
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

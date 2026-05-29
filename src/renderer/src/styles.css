@@ -4036,17 +4036,26 @@ textarea {
 }
 
 .shell {
-  width: calc(100vw - 56px);
-  height: calc(100vh - 56px);
-  margin: 28px;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 22px;
   overflow: hidden;
   background: #ffffff;
+  box-shadow: none;
+  clip-path: inset(0 round 22px);
+}
+
+.shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
   box-shadow:
-    0 34px 90px rgba(0, 0, 0, 0.22),
-    0 14px 34px rgba(0, 0, 0, 0.14),
-    0 2px 6px rgba(0, 0, 0, 0.08);
+    inset 0 0 0 1px rgba(0, 0, 0, 0.05),
+    inset 0 -16px 34px rgba(0, 0, 0, 0.06);
 }
 
 .video-shell {
