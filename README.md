@@ -53,13 +53,13 @@ npm run pack
 1. 打开你的多维表格链接。
 2. 点击右上角“...”或“自动化/高级权限”相关入口。
 3. 将刚创建的自建应用添加为协作者，至少给它编辑权限。
-4. 当前表格链接里的 `app_token` 已默认写入工具：`FBGWbqE7YaWtlBsFr5rc8L4vnPh`。
+4. 当前表格链接里的 `app_token` 已默认写入工具：`<your_app_token>`。
 
 ### 3. 在工具里连接
 
 1. 打开悬浮按钮，点击设置。
 2. 填写飞书自建应用的 `app_id`、`app_secret`。
-3. 确认 `app_token` 是 `FBGWbqE7YaWtlBsFr5rc8L4vnPh`。
+3. 确认 `app_token` 是 `<your_app_token>`。
 4. 点击“同步字段”，工具会读取表列表和字段列表。
 5. 选择对应的数据表。
 5. 确认字段映射：

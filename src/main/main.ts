@@ -22,7 +22,7 @@ import type {
 import { defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflow } from '../shared/types'
 
 const { autoUpdater } = electronUpdater
-const DEFAULT_APP_TOKEN = 'FBGWbqE7YaWtlBsFr5rc8L4vnPh'
+const DEFAULT_APP_TOKEN = ''
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
 const EXPANDED_WIDTH = 1080
