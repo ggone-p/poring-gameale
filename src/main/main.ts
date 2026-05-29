@@ -29,6 +29,7 @@ const EXPANDED_WIDTH = 1080
 const EXPANDED_HEIGHT = 824
 const INNER_WIDTH = 1024
 const INNER_HEIGHT = 768
+const SOFTWARE_DESIGNER = '方攀'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -309,7 +310,26 @@ function createTray(): void {
       { label: '展开', click: () => expandWindow() },
       { label: '收起', click: () => collapseWindow() },
       { type: 'separator' },
+      { label: `软件设计：${SOFTWARE_DESIGNER}`, enabled: false },
+      { label: `版本 ${app.getVersion()}`, enabled: false },
+      { type: 'separator' },
       { label: '退出', click: () => app.quit() }
+    ])
+  )
+}
+
+function createApplicationMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '素材悬浮上传',
+        submenu: [
+          { label: `软件设计：${SOFTWARE_DESIGNER}`, enabled: false },
+          { label: `版本 ${app.getVersion()}`, enabled: false },
+          { type: 'separator' },
+          { label: '退出', click: () => app.quit() }
+        ]
+      }
     ])
   )
 }
@@ -775,6 +795,7 @@ app.whenReady().then(async () => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+  createApplicationMenu()
   createWindow()
   createTray()
   if (config.workflow.autoCheckUpdates && config.workflow.updateUrl) {
