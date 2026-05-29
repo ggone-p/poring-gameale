@@ -40,8 +40,10 @@
       "icon": "build/icon.ico",
       "publish": [
         {
-          "provider": "generic",
-          "url": "https://updates.example.com/poring-gameale/"
+          "provider": "github",
+          "owner": "ggone-p",
+          "repo": "poring-gameale",
+          "releaseType": "release"
         }
       ],
       "signAndEditExecutable": false,
