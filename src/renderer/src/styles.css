@@ -4280,6 +4280,12 @@ textarea {
   color: #1d1d1f;
 }
 
+.settings-title .icon-btn {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .settings-title .icon-btn:hover,
 .video-title .icon-btn:hover,
 .title-actions .icon-btn:hover,

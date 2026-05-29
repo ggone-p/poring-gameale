@@ -1,6 +1,6 @@
 {
   "name": "feishu-asset-floating-uploader",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "A floating Windows desktop uploader for Feishu Bitable creative assets.",
   "author": "方攀",
   "productName": "波利AI图助手",
@@ -21,6 +21,7 @@
     "directories": {
       "output": "release"
     },
+    "afterPack": "scripts/after-pack-icon.cjs",
     "artifactName": "poring-gameale-${version}-${arch}.${ext}",
     "files": [
       "out/**/*",
@@ -38,6 +39,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
       "publish": [
         {
           "provider": "github",
@@ -46,7 +48,6 @@
           "releaseType": "release"
         }
       ],
-      "signAndEditExecutable": false,
       "verifyUpdateCodeSignature": false,
       "target": [
         {
@@ -63,7 +64,7 @@
       "installerHeaderIcon": "build/icon.ico",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "波利AI图助手"
     }
