@@ -4326,3 +4326,21 @@ textarea {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   letter-spacing: 0;
 }
+
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+.overlay-handle,
+.overlay-handle.logo,
+.overlay-handle.slogan,
+.overlay-handle.icon {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.overlay-handle img {
+  background: transparent !important;
+}

@@ -26,6 +26,9 @@ const DEFAULT_APP_ID = 'cli_a80a7c95e83bd01c'
 const DEFAULT_APP_TOKEN = 'FBGWbqE7YaWtlBsFr5rc8L4vnPh'
 const DEFAULT_TABLE_ID = 'tblBsneYhqCtYPBc'
 const DEFAULT_UPDATE_URL = 'https://github.com/ggone-p/poring-gameale/releases/latest/download/'
+const DEFAULT_LOGO_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\LOGO标志'
+const DEFAULT_SLOGAN_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\标语slogan'
+const DEFAULT_ICON_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\应用商店图标'
 const APP_DISPLAY_NAME = '波利AI图助手'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
@@ -83,9 +86,9 @@ function defaultConfig(): AppConfig {
     },
     fieldMapping: defaultFieldMapping,
     assetLibrary: {
-      logoDir: '',
-      sloganDir: '',
-      iconDir: ''
+      logoDir: DEFAULT_LOGO_DIR,
+      sloganDir: DEFAULT_SLOGAN_DIR,
+      iconDir: DEFAULT_ICON_DIR
     },
     workflow: defaultWorkflow,
     overlays: defaultOverlays,
@@ -137,6 +140,12 @@ function applyBuiltInDefaults(config: AppConfig): AppConfig {
     workflow: {
       ...config.workflow,
       updateUrl: config.workflow.updateUrl || DEFAULT_UPDATE_URL
+    },
+    assetLibrary: {
+      ...config.assetLibrary,
+      logoDir: config.assetLibrary.logoDir || DEFAULT_LOGO_DIR,
+      sloganDir: config.assetLibrary.sloganDir || DEFAULT_SLOGAN_DIR,
+      iconDir: config.assetLibrary.iconDir || DEFAULT_ICON_DIR
     }
   }
 }
@@ -282,6 +291,7 @@ function createWindow(): void {
     title: APP_DISPLAY_NAME,
     icon: trayIconPath(),
     transparent: true,
+    hasShadow: false,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: join(__dirname, '../preload/preload.mjs'),
@@ -719,6 +729,9 @@ async function uploadMedia(config: AppConfig, filePath: string, uploadName?: str
   })
   const data = (await response.json()) as { code?: number; msg?: string; data?: { file_token?: string } }
   if (!response.ok || data.code !== 0 || !data.data?.file_token) {
+    if (/permission denied/i.test(data.msg || '')) {
+      throw new Error('飞书附件上传权限不足（Permission denied）。本地成品已生成，请检查飞书应用的素材/Drive 上传权限。')
+    }
     throw new Error(data.msg || '上传飞书成品图失败。')
   }
   return data.data.file_token
@@ -726,24 +739,25 @@ async function uploadMedia(config: AppConfig, filePath: string, uploadName?: str
 
 async function uploadOne(request: UploadRequest): Promise<UploadResult> {
   const config = readConfig()
+  let generatedName = ''
+  let recordId = ''
+  let outputPath = ''
+  let localOutputGenerated = false
   try {
     requireFeishuConfig(config)
     const created = await createRecord(config, request.selections)
-    const generatedName = await waitForGeneratedName(config, created.recordId)
+    recordId = created.recordId
+    generatedName = await waitForGeneratedName(config, created.recordId)
     const sourceExt = extname(request.item.path) || '.png'
     const uploadName = `${generatedName}${sourceExt}`
     const configuredOutputDir = outputDirectory(config, request.selections.completionDate, request.item)
     const targetDir = configuredOutputDir || dirname(request.item.path)
+    mkdirSync(targetDir, { recursive: true })
     const targetPath = uniquePath(join(targetDir, `${generatedName}${sourceExt}`))
-    const tempPath = join(app.getPath('temp'), `asset-uploader-${Date.now()}-${Math.random().toString(16).slice(2)}${sourceExt}`)
+    outputPath = targetPath
+    const tempPath = join(targetDir, `.asset-uploader-${Date.now()}-${Math.random().toString(16).slice(2)}${sourceExt}`)
 
     await compositeImageToFile(request.item.path, request.overlays, tempPath)
-    const fileToken = await uploadMedia(config, tempPath, uploadName)
-    await updateRecord(config, created.recordId, {
-      [config.fieldMapping.finalAsset]: [{ file_token: fileToken }],
-      [config.fieldMapping.progress]: '已完成all'
-    })
-
     if (targetPath === request.item.path) {
       renameSync(tempPath, request.item.path)
     } else {
@@ -751,9 +765,16 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
       try {
         rmSync(request.item.path, { force: true })
       } catch {
-        throw new Error('飞书上传已完成，但源文件删除失败。请确认文件没有被 Photoshop 或资源管理器占用。')
+        // Source cleanup is best effort. The generated final file is already safe on disk.
       }
     }
+    localOutputGenerated = true
+
+    const fileToken = await uploadMedia(config, targetPath, uploadName)
+    await updateRecord(config, created.recordId, {
+      [config.fieldMapping.finalAsset]: [{ file_token: fileToken }],
+      [config.fieldMapping.progress]: '已完成all'
+    })
 
     saveConfig({
       overlays: request.overlays,
@@ -768,10 +789,14 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
       outputPath: targetPath
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     return {
       id: request.item.id,
       status: 'failed',
-      error: error instanceof Error ? error.message : String(error)
+      generatedName: generatedName || undefined,
+      recordId: recordId || undefined,
+      outputPath: localOutputGenerated ? outputPath : undefined,
+      error: localOutputGenerated ? `${message} \u672c\u5730\u6210\u54c1\u5df2\u751f\u6210\uff1a${outputPath}` : message
     }
   }
 }
