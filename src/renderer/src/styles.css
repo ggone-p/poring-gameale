@@ -4269,3 +4269,54 @@ textarea {
 .stitch-stage-card > .field-grid .date-field {
   gap: 2px;
 }
+
+/* Theme lock: every late-stage interactive accent must follow the user color. */
+.settings-title .icon-btn,
+.video-title .icon-btn,
+.title-actions .icon-btn,
+.top-actions .icon-btn,
+.settings-header-actions .icon-btn,
+.icon-btn {
+  color: #1d1d1f;
+}
+
+.settings-title .icon-btn:hover,
+.video-title .icon-btn:hover,
+.title-actions .icon-btn:hover,
+.top-actions .icon-btn:hover,
+.settings-header-actions .icon-btn:hover,
+.icon-btn:hover {
+  color: var(--accent-color) !important;
+  border-color: color-mix(in srgb, var(--accent-color) 28%, transparent) !important;
+  background: color-mix(in srgb, var(--accent-color) 7%, #ffffff) !important;
+}
+
+.update-toast,
+.update-toast.error {
+  border-color: color-mix(in srgb, var(--accent-color) 22%, transparent) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+}
+
+.footer-status-icon,
+.footer-status-icon.ready,
+.footer-status-icon.pending {
+  color: #ffffff !important;
+  background: var(--accent-color) !important;
+  border-color: var(--accent-color) !important;
+}
+
+.footer-status-icon svg,
+.footer-status-icon svg * {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.masked-setting-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.06em;
+}
+
+.masked-setting-input:focus {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  letter-spacing: 0;
+}

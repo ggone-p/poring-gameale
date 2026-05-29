@@ -724,7 +724,7 @@ function App(): JSX.Element {
       const status = await window.assetUploader.checkForUpdates()
       setUpdateStatus(status)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = formatUpdateMessage(error instanceof Error ? error.message : String(error))
       setUpdateStatus(message)
       setUpdateState({ phase: 'error', status: message, percent: 0 })
     }
@@ -1047,16 +1047,24 @@ function App(): JSX.Element {
   )
 }
 
+function formatUpdateMessage(message: string): string {
+  if (/ERR_CONNECTION_CLOSED|ERR_TIMED_OUT|ERR_INTERNET_DISCONNECTED|ENOTFOUND|ECONNRESET/i.test(message)) {
+    return '暂时连接不到更新源，请稍后重试，或检查当前网络是否能访问 GitHub。'
+  }
+  return message.replace(/^Error invoking remote method '[^']+':\s*/i, '').trim()
+}
+
 function UpdateToast({ state, onInstall }: { state: UpdateState; onInstall: () => void }): JSX.Element | null {
   if (!state.status || state.phase === 'idle' || state.phase === 'not-available') return null
   const isDownloaded = state.phase === 'downloaded'
   const isDownloading = state.phase === 'downloading'
   const isError = state.phase === 'error'
+  const statusText = isError ? formatUpdateMessage(state.status) : state.status
   return (
     <aside className={`update-toast ${isError ? 'error' : ''}`}>
       <div>
         <strong>{isDownloaded ? '新版本已准备好' : '在线更新'}</strong>
-        <span>{state.status}</span>
+        <span>{statusText}</span>
         {isDownloading && (
           <i>
             <b style={{ width: `${Math.max(4, Math.min(100, state.percent || 0))}%` }} />
@@ -1672,6 +1680,32 @@ function ProjectDefaults({
   )
 }
 
+function MaskedSettingInput({
+  value,
+  placeholder,
+  onChange
+}: {
+  value: string
+  placeholder?: string
+  onChange: (value: string) => void
+}): JSX.Element {
+  const [focused, setFocused] = useState(false)
+
+  return (
+    <input
+      className="masked-setting-input"
+      type={focused ? 'text' : 'password'}
+      autoComplete="off"
+      spellCheck={false}
+      placeholder={placeholder}
+      value={value}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  )
+}
+
 function SettingsPanel({
   config,
   schema,
@@ -1744,7 +1778,10 @@ function SettingsPanel({
             <div className="settings-form">
               <label>
                 App ID
-                <input value={config.feishu.appId} onChange={(e) => onChange({ feishu: { ...config.feishu, appId: e.target.value } })} />
+                <MaskedSettingInput
+                  value={config.feishu.appId}
+                  onChange={(value) => onChange({ feishu: { ...config.feishu, appId: value } })}
+                />
               </label>
               <label>
                 App Secret
@@ -1756,9 +1793,9 @@ function SettingsPanel({
               </label>
               <label>
                 App Token
-                <input
+                <MaskedSettingInput
                   value={config.feishu.appToken}
-                  onChange={(e) => onChange({ feishu: { ...config.feishu, appToken: e.target.value } })}
+                  onChange={(value) => onChange({ feishu: { ...config.feishu, appToken: value } })}
                 />
               </label>
               <label>
@@ -1879,11 +1916,11 @@ function SettingsPanel({
               </label>
               <label>
                 更新源地址
-                <input
+                <MaskedSettingInput
                   placeholder="例如 https://updates.example.com/poring-gameale/"
                   value={config.workflow.updateUrl}
-                  onChange={(event) =>
-                    onChange({ workflow: { ...config.workflow, updateUrl: event.target.value } } as Partial<AppConfig>)
+                  onChange={(value) =>
+                    onChange({ workflow: { ...config.workflow, updateUrl: value } } as Partial<AppConfig>)
                   }
                 />
               </label>
