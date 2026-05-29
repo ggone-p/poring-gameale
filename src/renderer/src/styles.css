@@ -4244,3 +4244,23 @@ textarea {
   white-space: nowrap;
   box-shadow: none;
 }
+
+/* Field label cleanup: keep labels as plain text instead of floating chips. */
+.stitch-stage-card > .field-grid .chip-select > span,
+.stitch-stage-card > .field-grid .date-field > span {
+  position: static !important;
+  display: inline-block;
+  width: max-content;
+  margin: 0 0 3px;
+  padding: 0 !important;
+  background: transparent !important;
+  color: #424245;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.stitch-stage-card > .field-grid .chip-select,
+.stitch-stage-card > .field-grid .date-field {
+  gap: 2px;
+}
