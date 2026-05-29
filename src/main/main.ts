@@ -712,13 +712,18 @@ async function previewComposite(inputPath: string, overlays: OverlayState, width
   return `data:image/png;base64,${buffer.toString('base64')}`
 }
 
-async function uploadMedia(config: AppConfig, filePath: string, uploadName?: string): Promise<string> {
+async function uploadMediaWithParentType(
+  config: AppConfig,
+  filePath: string,
+  parentType: 'bitable_image' | 'bitable_file',
+  uploadName?: string
+): Promise<string> {
   const token = await getTenantAccessToken(config.feishu)
   const buffer = readFileSync(filePath)
   const fileName = uploadName || basename(filePath)
   const formData = new FormData()
   formData.append('file_name', fileName)
-  formData.append('parent_type', 'bitable_image')
+  formData.append('parent_type', parentType)
   formData.append('parent_node', config.feishu.appToken)
   formData.append('size', String(buffer.length))
   formData.append('file', new Blob([buffer]), fileName)
@@ -729,12 +734,26 @@ async function uploadMedia(config: AppConfig, filePath: string, uploadName?: str
   })
   const data = (await response.json()) as { code?: number; msg?: string; data?: { file_token?: string } }
   if (!response.ok || data.code !== 0 || !data.data?.file_token) {
-    if (/permission denied/i.test(data.msg || '')) {
-      throw new Error('飞书附件上传权限不足（Permission denied）。本地成品已生成，请检查飞书应用的素材/Drive 上传权限。')
-    }
-    throw new Error(data.msg || '上传飞书成品图失败。')
+    throw new Error(data.msg || '\u4e0a\u4f20\u98de\u4e66\u6210\u54c1\u56fe\u5931\u8d25\u3002')
   }
   return data.data.file_token
+}
+
+async function uploadMedia(config: AppConfig, filePath: string, uploadName?: string): Promise<string> {
+  const errors: string[] = []
+  for (const parentType of ['bitable_image', 'bitable_file'] as const) {
+    try {
+      return await uploadMediaWithParentType(config, filePath, parentType, uploadName)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      errors.push(`${parentType}: ${message}`)
+    }
+  }
+  const permissionDenied = errors.some((message) => /permission denied/i.test(message))
+  if (permissionDenied) {
+    throw new Error('\u98de\u4e66\u9644\u4ef6\u4e0a\u4f20\u6743\u9650\u4e0d\u8db3\uff08Permission denied\uff09\u3002\u672c\u5730\u6210\u54c1\u5df2\u751f\u6210\uff1b\u5982\u9700\u81ea\u52a8\u5199\u5165\u6210\u54c1\u5b57\u6bb5\uff0c\u8bf7\u7ed9\u98de\u4e66\u5e94\u7528\u5f00\u901a\u201c\u4e0a\u4f20\u56fe\u7247\u548c\u9644\u4ef6\u5230\u4e91\u6587\u6863/\u7d20\u6750\u4e0a\u4f20\u201d\u76f8\u5173\u6743\u9650\u3002')
+  }
+  throw new Error(`\u4e0a\u4f20\u98de\u4e66\u6210\u54c1\u56fe\u5931\u8d25\uff1a${errors.join('\uff1b')}`)
 }
 
 async function uploadOne(request: UploadRequest): Promise<UploadResult> {

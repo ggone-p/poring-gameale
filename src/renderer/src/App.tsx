@@ -57,16 +57,16 @@ type QueueItem = ImageItem & {
 }
 
 const overlayLabels: Record<OverlayKind, string> = {
-  logo: '标志',
+  logo: 'LOGO',
   slogan: '标语',
-  icon: '图标'
+  icon: '下载icon'
 }
 
 const overlayKinds: OverlayKind[] = ['logo', 'slogan', 'icon']
 const overlayPlaceholders: Record<OverlayKind, string> = {
-  logo: '选择标志样式',
-  slogan: '选择文字预设',
-  icon: '选择图标库'
+  logo: '选择LOGO',
+  slogan: '选择标语',
+  icon: '选择下载icon'
 }
 const overlayDefaultScale: Record<OverlayKind, number> = {
   logo: 0.32,
