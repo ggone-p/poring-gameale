@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
@@ -42,6 +42,7 @@ let isQuitting = false
 let mediaServer: Server | null = null
 let mediaServerPort = 0
 let updateStatus = '尚未检查更新'
+let fallbackInstallerPath = ''
 
 let updateState = {
   phase: 'idle',
@@ -791,6 +792,87 @@ async function checkForUpdates(): Promise<string> {
   return updateStatus
 }
 
+type GitHubReleaseAsset = {
+  id: number
+  name: string
+  size: number
+}
+
+type GitHubRelease = {
+  tag_name: string
+  assets: GitHubReleaseAsset[]
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = left.replace(/^v/i, '').split('.').map((part) => Number(part) || 0)
+  const rightParts = right.replace(/^v/i, '').split('.').map((part) => Number(part) || 0)
+  const length = Math.max(leftParts.length, rightParts.length)
+  for (let index = 0; index < length; index += 1) {
+    const diff = (leftParts[index] || 0) - (rightParts[index] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+async function fetchGitHubLatestRelease(): Promise<GitHubRelease> {
+  const response = await fetch('https://api.github.com/repos/ggone-p/poring-gameale/releases/latest', {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'poring-gameale-updater'
+    }
+  })
+  if (!response.ok) throw new Error(`GitHub API ${response.status}`)
+  return response.json() as Promise<GitHubRelease>
+}
+
+async function downloadGitHubAsset(asset: GitHubReleaseAsset): Promise<string> {
+  const response = await fetch(`https://api.github.com/repos/ggone-p/poring-gameale/releases/assets/${asset.id}`, {
+    headers: {
+      Accept: 'application/octet-stream',
+      'User-Agent': 'poring-gameale-updater'
+    },
+    redirect: 'follow'
+  })
+  if (!response.ok || !response.body) throw new Error(`GitHub asset download ${response.status}`)
+
+  const total = Number(response.headers.get('content-length') || asset.size || 0)
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.byteLength
+    const percent = total ? Math.round((received / total) * 100) : 0
+    publishUpdateState('downloading', `正在下载备用更新 ${percent}%`, percent)
+  }
+
+  const installerPath = join(app.getPath('temp'), asset.name)
+  writeFileSync(installerPath, Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
+  fallbackInstallerPath = installerPath
+  return installerPath
+}
+
+async function checkGitHubReleaseFallback(): Promise<string> {
+  publishUpdateState('checking', '正在通过 GitHub API 检查更新')
+  const release = await fetchGitHubLatestRelease()
+  const latestVersion = release.tag_name.replace(/^v/i, '')
+  if (compareVersions(latestVersion, app.getVersion()) <= 0) {
+    publishUpdateState('not-available', '已经是最新版本')
+    return updateStatus
+  }
+
+  const installer = release.assets.find((asset) => /x64\.exe$/i.test(asset.name))
+  if (!installer) throw new Error('最新版本缺少 Windows 安装包')
+
+  publishUpdateState('available', '发现新版本，正在下载备用安装包')
+  await downloadGitHubAsset(installer)
+  publishUpdateState('downloaded', '更新安装包已下载，点击重启安装', 100)
+  return updateStatus
+}
+
 async function checkForUpdatesOnline(): Promise<string> {
   const config = readConfig()
   if (!config.workflow.updateUrl) {
@@ -803,7 +885,12 @@ async function checkForUpdatesOnline(): Promise<string> {
   }
   configureAutoUpdater(config)
   publishUpdateState('checking', '正在检查更新')
-  await autoUpdater.checkForUpdatesAndNotify()
+  try {
+    await autoUpdater.checkForUpdatesAndNotify()
+  } catch (error) {
+    if (!config.workflow.updateUrl.includes('github.com/ggone-p/poring-gameale')) throw error
+    await checkGitHubReleaseFallback()
+  }
   return updateStatus
 }
 
@@ -878,6 +965,11 @@ ipcMain.handle('config:save', (_, patch: Partial<AppConfig>) => saveConfig(patch
 ipcMain.handle('updates:state', () => updateState)
 ipcMain.handle('updates:check', async () => checkForUpdatesOnline())
 ipcMain.handle('updates:install', () => {
+  if (fallbackInstallerPath && existsSync(fallbackInstallerPath)) {
+    void shell.openPath(fallbackInstallerPath)
+    app.quit()
+    return
+  }
   if (app.isPackaged) autoUpdater.quitAndInstall()
 })
 ipcMain.handle('files:pick-images', async () => {
