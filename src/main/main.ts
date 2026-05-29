@@ -23,6 +23,7 @@ import { defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflo
 
 const { autoUpdater } = electronUpdater
 const DEFAULT_APP_TOKEN = ''
+const APP_DISPLAY_NAME = '波利AI图助手'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
 const EXPANDED_WIDTH = 1080
@@ -257,7 +258,7 @@ function createWindow(): void {
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
-    title: '素材悬浮上传',
+    title: APP_DISPLAY_NAME,
     icon: trayIconPath(),
     transparent: true,
     backgroundColor: '#00000000',
@@ -303,7 +304,7 @@ function createWindow(): void {
 function createTray(): void {
   const icon = nativeImage.createFromPath(trayIconPath()).resize({ width: 16, height: 16 })
   tray = new Tray(icon)
-  tray.setToolTip('素材悬浮上传')
+  tray.setToolTip(APP_DISPLAY_NAME)
   tray.on('click', () => expandWindow())
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -322,7 +323,7 @@ function createApplicationMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
-        label: '素材悬浮上传',
+        label: APP_DISPLAY_NAME,
         submenu: [
           { label: `软件设计：${SOFTWARE_DESIGNER}`, enabled: false },
           { label: `版本 ${app.getVersion()}`, enabled: false },

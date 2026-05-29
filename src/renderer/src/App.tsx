@@ -873,7 +873,7 @@ function App(): JSX.Element {
         onPointerCancel={handlePoringPointerCancel}
       >
         <div className="poring-shadow" />
-        <img className="poring-image" src={activePoringFrame} alt="素材悬浮上传" />
+        <img className="poring-image" src={activePoringFrame} alt="波利AI图助手" />
       </div>
     )
   }
@@ -903,7 +903,7 @@ function App(): JSX.Element {
             </button>
             <div>
               <strong>设置</strong>
-              <span>素材悬浮上传</span>
+              <span>波利AI图助手</span>
             </div>
           </div>
         ) : (
