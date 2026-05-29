@@ -98,6 +98,8 @@ type UpdateState = {
 }
 
 const DEFAULT_ACCENT = '#fd7e8a'
+const PORING_FPS = 24
+const PORING_FRAME_MS = 1000 / PORING_FPS
 
 function cloneOverlays(overlays: OverlayState): OverlayState {
   return {
@@ -231,6 +233,15 @@ function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    Object.values(poringFrames)
+      .flat()
+      .forEach((source) => {
+        const image = new Image()
+        image.src = source
+      })
+  }, [])
+
+  useEffect(() => {
     if (!config || autoSyncedRef.current) return
     if (!config.feishu.appId || !config.feishu.appSecret || !config.feishu.appToken) return
     autoSyncedRef.current = true
@@ -245,13 +256,13 @@ function App(): JSX.Element {
     if (!collapsed || activePoringFrames.length <= 1) return
     const timer = window.setInterval(() => {
       setPoringFrame((frame) => frame + 1)
-    }, poringMood === 'idle' ? 120 : 1000 / 24)
+    }, poringMood === 'idle' ? 120 : PORING_FRAME_MS)
     return () => window.clearInterval(timer)
   }, [activePoringFrames.length, collapsed, poringMood])
 
   useEffect(() => {
     if (poringMood !== 'press-intro') return
-    const duration = Math.max(1, poringFrames.click.length) * (1000 / 24)
+    const duration = Math.max(1, poringFrames.click.length) * PORING_FRAME_MS
     const timer = window.setTimeout(() => {
       setPoringMood((current) => (current === 'press-intro' ? 'pressed' : current))
     }, duration)
@@ -494,7 +505,7 @@ function App(): JSX.Element {
       if (!state || state.pointerId !== pointerId) return
       state.dragReady = true
       setPoringMood('press-intro')
-    }, 240)
+    }, 180)
     moveRef.current = {
       pointerId,
       startScreenX: event.screenX,

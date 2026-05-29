@@ -4108,9 +4108,13 @@ textarea {
 }
 
 .footer-status-icon.pending {
-  color: var(--accent-color);
-  background: var(--accent-soft);
-  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+  color: #ffffff;
+  background: var(--accent-color);
+  border: 0;
+}
+
+.footer-status-icon svg {
+  stroke: currentColor;
 }
 
 .video-frames-title .link-btn,
