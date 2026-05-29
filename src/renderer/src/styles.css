@@ -4114,7 +4114,8 @@ textarea {
 }
 
 .footer-status-icon svg {
-  stroke: currentColor;
+  color: #ffffff !important;
+  stroke: #ffffff !important;
 }
 
 .video-frames-title .link-btn,
