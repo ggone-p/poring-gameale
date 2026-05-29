@@ -573,23 +573,26 @@ function App(): JSX.Element {
   async function syncSchema(): Promise<void> {
     setSyncing(true)
     try {
-      const next = await window.assetUploader.syncSchema(config?.feishu.tableId)
+      const baseConfig = config ? await window.assetUploader.saveConfig(config) : null
+      if (baseConfig) setConfig(baseConfig)
+
+      const next = await window.assetUploader.syncSchema(baseConfig?.feishu.tableId)
       setSchema(next)
-      if (config) {
-        const resolved = withResolvedFieldMapping(config, next.fields)
-        if (JSON.stringify(resolved.fieldMapping) !== JSON.stringify(config.fieldMapping)) {
+      if (baseConfig) {
+        const resolved = withResolvedFieldMapping(baseConfig, next.fields)
+        if (JSON.stringify(resolved.fieldMapping) !== JSON.stringify(baseConfig.fieldMapping)) {
           const saved = await window.assetUploader.saveConfig({ fieldMapping: resolved.fieldMapping })
           setConfig(applyProjectDefaults(saved, next.fields, next.tables.find((table) => table.tableId === saved.feishu.tableId)?.name || ''))
         }
       }
       const firstProjectTable = projectTables(next.tables)[0]
-      if (config && firstProjectTable && !config.feishu.tableId) {
+      if (baseConfig && firstProjectTable && !baseConfig.feishu.tableId) {
         const updated = await window.assetUploader.saveConfig({
-          feishu: { ...config.feishu, tableId: firstProjectTable.tableId },
+          feishu: { ...baseConfig.feishu, tableId: firstProjectTable.tableId },
           workflow: {
-            ...config.workflow,
+            ...baseConfig.workflow,
             tableOutputGroups: {
-              ...config.workflow.tableOutputGroups,
+              ...baseConfig.workflow.tableOutputGroups,
               [firstProjectTable.tableId]: outputGroupForProject(firstProjectTable.name)
             }
           }
