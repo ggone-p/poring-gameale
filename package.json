@@ -1,6 +1,6 @@
 {
   "name": "feishu-asset-floating-uploader",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A floating Windows desktop uploader for Feishu Bitable creative assets.",
   "author": "方攀",
   "productName": "素材悬浮上传",
