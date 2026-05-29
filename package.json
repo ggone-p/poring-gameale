@@ -9,10 +9,11 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
-    "dist": "npm run build && electron-builder --win nsis",
+    "dist": "npm run build && electron-builder --win nsis && npm run prune:release",
     "pack": "npm run build && electron-builder --win dir",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prune:release": "node scripts/prune-release.mjs"
   },
   "build": {
     "appId": "com.gamealestudio.asset-uploader",
