@@ -185,7 +185,7 @@ export const defaultWorkflow: WorkflowPreferences = {
   },
   tableOutputGroups: {},
   accentColor: '#fd7e8a',
-  updateUrl: '',
+  updateUrl: 'https://github.com/ggone-p/poring-gameale/releases/latest/download/',
   autoCheckUpdates: true,
   organizeByMonth: true,
   launchAtLogin: true,

@@ -22,7 +22,10 @@ import type {
 import { defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflow } from '../shared/types'
 
 const { autoUpdater } = electronUpdater
-const DEFAULT_APP_TOKEN = ''
+const DEFAULT_APP_ID = 'cli_a80a7c95e83bd01c'
+const DEFAULT_APP_TOKEN = 'FBGWbqE7YaWtlBsFr5rc8L4vnPh'
+const DEFAULT_TABLE_ID = 'tblBsneYhqCtYPBc'
+const DEFAULT_UPDATE_URL = 'https://github.com/ggone-p/poring-gameale/releases/latest/download/'
 const APP_DISPLAY_NAME = '波利AI图助手'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
@@ -72,10 +75,10 @@ function configPath(): string {
 function defaultConfig(): AppConfig {
   return {
     feishu: {
-      appId: '',
+      appId: DEFAULT_APP_ID,
       appSecret: '',
       appToken: DEFAULT_APP_TOKEN,
-      tableId: ''
+      tableId: DEFAULT_TABLE_ID
     },
     fieldMapping: defaultFieldMapping,
     assetLibrary: {
@@ -100,7 +103,7 @@ function readConfig(): AppConfig {
   try {
     const raw = readFileSync(configPath(), 'utf8')
     const parsed = JSON.parse(raw) as Partial<AppConfig>
-    return {
+    const merged = {
       ...fallback,
       ...parsed,
       feishu: { ...fallback.feishu, ...parsed.feishu },
@@ -115,8 +118,25 @@ function readConfig(): AppConfig {
       selections: { ...fallback.selections, ...parsed.selections },
       window: { ...fallback.window, ...parsed.window }
     }
+    return applyBuiltInDefaults(merged)
   } catch {
     return fallback
+  }
+}
+
+function applyBuiltInDefaults(config: AppConfig): AppConfig {
+  return {
+    ...config,
+    feishu: {
+      ...config.feishu,
+      appId: config.feishu.appId || DEFAULT_APP_ID,
+      appToken: config.feishu.appToken || DEFAULT_APP_TOKEN,
+      tableId: config.feishu.tableId || DEFAULT_TABLE_ID
+    },
+    workflow: {
+      ...config.workflow,
+      updateUrl: config.workflow.updateUrl || DEFAULT_UPDATE_URL
+    }
   }
 }
 
