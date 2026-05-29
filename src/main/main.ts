@@ -770,11 +770,23 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
     }
     localOutputGenerated = true
 
-    const fileToken = await uploadMedia(config, targetPath, uploadName)
-    await updateRecord(config, created.recordId, {
-      [config.fieldMapping.finalAsset]: [{ file_token: fileToken }],
-      [config.fieldMapping.progress]: '已完成all'
-    })
+    let uploadWarning = ''
+    try {
+      const fileToken = await uploadMedia(config, targetPath, uploadName)
+      await updateRecord(config, created.recordId, {
+        [config.fieldMapping.finalAsset]: [{ file_token: fileToken }],
+        [config.fieldMapping.progress]: '已完成all'
+      })
+    } catch (error) {
+      uploadWarning = error instanceof Error ? error.message : String(error)
+      try {
+        await updateRecord(config, created.recordId, {
+          [config.fieldMapping.progress]: '已完成all'
+        })
+      } catch {
+        // Local output is the source of truth for the user workflow; Feishu write-back can be retried later.
+      }
+    }
 
     saveConfig({
       overlays: request.overlays,
@@ -786,7 +798,8 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
       status: 'completed',
       generatedName,
       recordId: created.recordId,
-      outputPath: targetPath
+      outputPath: targetPath,
+      error: uploadWarning ? `本地已完成，飞书附件未上传：${uploadWarning}` : undefined
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

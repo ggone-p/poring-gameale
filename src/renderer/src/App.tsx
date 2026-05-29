@@ -340,10 +340,11 @@ function App(): JSX.Element {
     }
   }, [collapsed])
 
+  const pendingUploadItems = queue.filter((item) => item.status !== 'completed')
   const allItemsReady = Boolean(
     config && queue.length && queue.every((item) => isItemReady(item, config, schema.fields))
   )
-  const canUpload = Boolean(config && queue.length && allItemsReady && !uploading)
+  const canUpload = Boolean(config && pendingUploadItems.length && allItemsReady && !uploading)
 
   async function loadAssetLists(nextConfig: AppConfig): Promise<void> {
     const [logo, slogan, icon] = await Promise.all([
@@ -1035,8 +1036,24 @@ function App(): JSX.Element {
                 {allItemsReady ? <CheckCircle2 size={18} /> : <ListChecks size={18} />}
               </span>
               <div>
-                <strong>{queue.length ? `${queue.length} 张图片待处理` : '等待添加图片'}</strong>
-                <small>{uploading ? '正在上传并重命名' : queue.length ? (allItemsReady ? '全部素材已准备，可以开始上传' : '补全字段和图层后开始上传') : '拖入图片或点击波利添加队列'}</small>
+                <strong>
+                  {queue.length
+                    ? pendingUploadItems.length
+                      ? `${pendingUploadItems.length} 张图片待处理`
+                      : `${queue.length} 张图片已处理`
+                    : '等待添加图片'}
+                </strong>
+                <small>
+                  {uploading
+                    ? '正在上传并重命名'
+                    : queue.length
+                      ? pendingUploadItems.length
+                        ? allItemsReady
+                          ? '全部素材已准备，可以开始上传'
+                          : '补全字段和图层后开始上传'
+                        : '本地成品已生成，必要时可继续补传飞书'
+                      : '拖入图片或点击波利添加队列'}
+                </small>
               </div>
             </div>
             <button className="primary-btn" disabled={!canUpload} onClick={uploadAll}>
