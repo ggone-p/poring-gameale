@@ -30,6 +30,7 @@ const DEFAULT_LOGO_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软�
 const DEFAULT_SLOGAN_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\标语slogan'
 const DEFAULT_ICON_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\应用商店图标'
 const APP_DISPLAY_NAME = '波利AI图助手'
+const DONE_PROGRESS_VALUE = '\u5df2\u5b8c\u6210all'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
 const EXPANDED_WIDTH = 1024
@@ -557,6 +558,29 @@ async function syncSchema(requestedTableId?: string): Promise<SchemaSnapshot> {
   }
 }
 
+async function resolveProgressDoneValue(config: AppConfig): Promise<string> {
+  const fieldName = config.fieldMapping.progress
+  if (!fieldName) return DONE_PROGRESS_VALUE
+  const fieldsData = await feishuRequest<{ items?: Array<Record<string, unknown>> }>(
+    `/open-apis/bitable/v1/apps/${config.feishu.appToken}/tables/${config.feishu.tableId}/fields?page_size=100`,
+    {},
+    config.feishu
+  )
+  const field = (fieldsData.items || []).map(normalizeField).find((item) => item.fieldName === fieldName)
+  const options = field?.options || []
+  const exact = options.find((option) => option.name === DONE_PROGRESS_VALUE)
+  if (exact?.name) return exact.name
+  const normalizedTarget = DONE_PROGRESS_VALUE.toLowerCase().replace(/\s+/g, '')
+  const close = options.find((option) => option.name.toLowerCase().replace(/\s+/g, '') === normalizedTarget)
+  return close?.name || DONE_PROGRESS_VALUE
+}
+
+async function updateProgressDone(config: AppConfig, recordId: string): Promise<void> {
+  await updateRecord(config, recordId, {
+    [config.fieldMapping.progress]: await resolveProgressDoneValue(config)
+  })
+}
+
 function dateToFeishuValue(date: string): number | string {
   if (!date) return ''
   const parsed = new Date(`${date}T00:00:00+08:00`).getTime()
@@ -796,9 +820,7 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
         [config.fieldMapping.finalAsset]: [{ file_token: fileToken }]
       })
       try {
-        await updateRecord(config, created.recordId, {
-          [config.fieldMapping.progress]: '已完成all'
-        })
+        await updateProgressDone(config, created.recordId)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         uploadWarning = `成品已上传，进展字段未更新：${message}`
@@ -806,9 +828,7 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
     } catch (error) {
       uploadWarning = error instanceof Error ? error.message : String(error)
       try {
-        await updateRecord(config, created.recordId, {
-          [config.fieldMapping.progress]: '已完成all'
-        })
+        await updateProgressDone(config, created.recordId)
       } catch {
         // Local output is the source of truth for the user workflow; Feishu write-back can be retried later.
       }
