@@ -3,7 +3,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import sharp from 'sharp'
 import type {
   AppConfig,
@@ -31,6 +31,7 @@ const DEFAULT_SLOGAN_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软
 const DEFAULT_ICON_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\应用商店图标'
 const APP_DISPLAY_NAME = '波利AI图助手'
 const DONE_PROGRESS_VALUE = '\u5df2\u5b8c\u6210all'
+const LOCAL_IMPORT_PORT = 17367
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
 const EXPANDED_WIDTH = 1024
@@ -204,10 +205,131 @@ function mimeForPath(filePath: string): string {
   return 'application/octet-stream'
 }
 
+function extensionForMime(mime: string): string {
+  const normalized = mime.toLowerCase().split(';')[0].trim()
+  if (normalized === 'image/png') return '.png'
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return '.jpg'
+  if (normalized === 'image/webp') return '.webp'
+  return ''
+}
+
+function writeJsonResponse(response: ServerResponse, status: number, data: unknown): void {
+  response.writeHead(status, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8'
+  })
+  response.end(JSON.stringify(data))
+}
+
+function readRequestBody(request: IncomingMessage, limit = 80 * 1024 * 1024): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    request.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > limit) {
+        reject(new Error('导入图片太大，请先另存后拖入软件。'))
+        request.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => resolve(Buffer.concat(chunks)))
+    request.on('error', reject)
+  })
+}
+
+function safeImportedFileName(fileName: string, mime: string, sourceUrl = ''): string {
+  const urlName = (() => {
+    try {
+      return basename(decodeURIComponent(new URL(sourceUrl).pathname))
+    } catch {
+      return ''
+    }
+  })()
+  const rawName = fileName || urlName || `browser-image-${Date.now()}`
+  const ext = extname(rawName) || extensionForMime(mime) || '.png'
+  const base = sanitizeFileBaseName(rawName.replace(/\.[^.]+$/, '')) || `browser-image-${Date.now()}`
+  return `${base}${ext}`
+}
+
+async function importBrowserImage(payload: { url?: string; dataUrl?: string; fileName?: string }): Promise<ImageItem> {
+  let buffer: Buffer
+  let mime = ''
+  const source = payload.dataUrl || payload.url || ''
+  if (!source) throw new Error('没有收到图片地址。')
+
+  if (payload.dataUrl || source.startsWith('data:')) {
+    const match = source.match(/^data:([^;,]+)[^,]*,(.+)$/)
+    if (!match) throw new Error('图片数据无效。')
+    mime = match[1]
+    buffer = Buffer.from(match[2], 'base64')
+  } else {
+    const response = await fetch(source)
+    if (!response.ok) throw new Error(`下载网页图片失败：${response.status}`)
+    mime = response.headers.get('content-type') || ''
+    buffer = Buffer.from(await response.arrayBuffer())
+  }
+
+  if (!mime.startsWith('image/')) {
+    const detected = await sharp(buffer).metadata().catch(() => null)
+    if (!detected?.format) throw new Error('收到的内容不是图片。')
+    mime = `image/${detected.format === 'jpeg' ? 'jpeg' : detected.format}`
+  }
+
+  const importDir = join(app.getPath('userData'), 'browser-imports')
+  mkdirSync(importDir, { recursive: true })
+  const fileName = safeImportedFileName(payload.fileName || '', mime, payload.url)
+  const filePath = uniquePath(join(importDir, fileName))
+  writeFileSync(filePath, buffer)
+  return imageToItem(filePath)
+}
+
+function deliverImportedImages(items: ImageItem[]): void {
+  if (!items.length || !mainWindow) return
+  expandWindow()
+  mainWindow.webContents.send('files:browser-imported', items)
+}
+
 function startMediaServer(): Promise<void> {
   if (mediaServer && mediaServerPort) return Promise.resolve()
-  mediaServer = createServer((request, response) => {
+  mediaServer = createServer(async (request, response) => {
     const requestUrl = new URL(request.url || '/', 'http://127.0.0.1')
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      })
+      response.end()
+      return
+    }
+    if (requestUrl.pathname === '/health') {
+      writeJsonResponse(response, 200, { ok: true, app: APP_DISPLAY_NAME, port: LOCAL_IMPORT_PORT })
+      return
+    }
+    if (requestUrl.pathname === '/import-image' && request.method === 'POST') {
+      try {
+        const body = await readRequestBody(request)
+        const json = JSON.parse(body.toString('utf8')) as {
+          url?: string
+          dataUrl?: string
+          fileName?: string
+          images?: Array<{ url?: string; dataUrl?: string; fileName?: string }>
+        }
+        const payloads = Array.isArray(json.images) ? json.images : [json]
+        const items: ImageItem[] = []
+        for (const payload of payloads) items.push(await importBrowserImage(payload))
+        deliverImportedImages(items)
+        writeJsonResponse(response, 200, { ok: true, count: items.length })
+      } catch (error) {
+        writeJsonResponse(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+      }
+      return
+    }
     if (requestUrl.pathname !== '/media') {
       response.writeHead(404)
       response.end()
@@ -263,7 +385,7 @@ function startMediaServer(): Promise<void> {
 
   return new Promise((resolve, reject) => {
     mediaServer?.once('error', reject)
-    mediaServer?.listen(0, '127.0.0.1', () => {
+    mediaServer?.listen(LOCAL_IMPORT_PORT, '127.0.0.1', () => {
       const address = mediaServer?.address()
       mediaServerPort = typeof address === 'object' && address ? address.port : 0
       resolve()
@@ -980,7 +1102,9 @@ async function checkForUpdatesOnline(): Promise<string> {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.gamealestudio.asset-uploader')
-  await startMediaServer()
+  await startMediaServer().catch((error) => {
+    console.warn('Local import server failed to start:', error)
+  })
   const config = readConfig()
   configureAutoUpdater(config)
   applyLoginItemSettings(config)
@@ -1065,6 +1189,11 @@ ipcMain.handle('files:pick-images', async () => {
   return importImages(result.filePaths)
 })
 ipcMain.handle('files:import-dropped', async (_, paths: string[]) => importImages(paths))
+ipcMain.handle('files:import-remote-images', async (_, urls: string[]) => {
+  const items: ImageItem[] = []
+  for (const url of urls) items.push(await importBrowserImage({ url }))
+  return items
+})
 ipcMain.handle('files:save-video-frame', async (_, dataUrl: string, fileName: string) => saveVideoFrame(dataUrl, fileName))
 ipcMain.handle('files:media-url', (_, path: string) => mediaUrlForPath(path))
 ipcMain.handle('files:pick-directory', async () => {

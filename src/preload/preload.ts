@@ -14,6 +14,7 @@ const api = {
   saveConfig: (patch: Partial<AppConfig>): Promise<AppConfig> => ipcRenderer.invoke('config:save', patch),
   pickImages: (): Promise<ImageItem[]> => ipcRenderer.invoke('files:pick-images'),
   importDroppedFiles: (paths: string[]): Promise<ImageItem[]> => ipcRenderer.invoke('files:import-dropped', paths),
+  importRemoteImages: (urls: string[]): Promise<ImageItem[]> => ipcRenderer.invoke('files:import-remote-images', urls),
   saveVideoFrame: (dataUrl: string, fileName: string): Promise<ImageItem> =>
     ipcRenderer.invoke('files:save-video-frame', dataUrl, fileName),
   mediaUrlForFile: (path: string): Promise<string> => ipcRenderer.invoke('files:media-url', path),
@@ -30,6 +31,11 @@ const api = {
       callback(state)
     ipcRenderer.on('updates:status', listener)
     return () => ipcRenderer.removeListener('updates:status', listener)
+  },
+  onBrowserImport: (callback: (items: ImageItem[]) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, items: ImageItem[]): void => callback(items)
+    ipcRenderer.on('files:browser-imported', listener)
+    return () => ipcRenderer.removeListener('files:browser-imported', listener)
   },
   collapse: (): Promise<void> => ipcRenderer.invoke('window:collapse'),
   expand: (): Promise<void> => ipcRenderer.invoke('window:expand'),

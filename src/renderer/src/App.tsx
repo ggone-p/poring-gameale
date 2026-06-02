@@ -323,7 +323,7 @@ function App(): JSX.Element {
   useEffect(() => {
     if (!collapsed) return
     const keepHover = (event: DragEvent): void => {
-      if (!event.dataTransfer?.types.includes('Files')) return
+      if (!event.dataTransfer || !dataTransferHasImportableContent(event.dataTransfer)) return
       event.preventDefault()
       event.dataTransfer.dropEffect = 'copy'
       showPoringDropTarget()
@@ -370,6 +370,16 @@ function App(): JSX.Element {
     setSelectedId((current) => current || additions[0].id)
   }
 
+  useEffect(() => {
+    return window.assetUploader.onBrowserImport((items) => {
+      appendImages(items)
+      if (items.length) {
+        setVideoPanel(null)
+        void expandPanel()
+      }
+    })
+  }, [config])
+
   async function importDroppedFiles(paths: string[]): Promise<void> {
     if (!paths.length) return
     const imagePaths = paths.filter(isImagePath)
@@ -397,10 +407,60 @@ function App(): JSX.Element {
     setPoringMood('idle')
   }
 
-  function pathsFromDrop(files: FileList): string[] {
-    return Array.from(files)
+  async function importRemoteImages(urls: string[]): Promise<void> {
+    const imageUrls = urls.filter((url) => /^https?:\/\//i.test(url) || /^data:image\//i.test(url))
+    if (!imageUrls.length) return
+    if (collapsed) {
+      setPoringMood('eating')
+      playEatSound()
+    }
+    const items = await window.assetUploader.importRemoteImages(imageUrls)
+    appendImages(items)
+    if (items.length) {
+      setVideoPanel(null)
+      await new Promise((resolve) => window.setTimeout(resolve, collapsed ? 420 : 0))
+      setPoringMood('idle')
+      await expandPanel()
+      return
+    }
+    setPoringMood('idle')
+  }
+
+  function pathsFromDrop(files: FileList | null): string[] {
+    return Array.from(files || [])
       .map((file) => window.assetUploader.getPathForFile(file))
       .filter(Boolean)
+  }
+
+  function urlsFromDrop(dataTransfer: DataTransfer): string[] {
+    const values = [
+      dataTransfer.getData('text/uri-list'),
+      dataTransfer.getData('text/plain'),
+      dataTransfer.getData('URL')
+    ]
+    return values
+      .flatMap((value) => value.split(/\r?\n/))
+      .map((value) => value.trim())
+      .filter((value) => value && !value.startsWith('#'))
+      .filter((value, index, list) => list.indexOf(value) === index)
+  }
+
+  function dataTransferHasImportableContent(dataTransfer: DataTransfer): boolean {
+    return (
+      dataTransfer.types.includes('Files') ||
+      dataTransfer.types.includes('text/uri-list') ||
+      dataTransfer.types.includes('text/plain') ||
+      dataTransfer.types.includes('URL')
+    )
+  }
+
+  async function importDropPayload(dataTransfer: DataTransfer): Promise<void> {
+    const paths = pathsFromDrop(dataTransfer.files)
+    if (paths.length) {
+      await importDroppedFiles(paths)
+      return
+    }
+    await importRemoteImages(urlsFromDrop(dataTransfer))
   }
 
   async function openVideoPanel(path: string): Promise<void> {
@@ -868,8 +928,7 @@ function App(): JSX.Element {
         onDrop={(event) => {
           event.preventDefault()
           clearPoringDropTarget()
-          const paths = pathsFromDrop(event.dataTransfer.files)
-          void importDroppedFiles(paths)
+          void importDropPayload(event.dataTransfer)
         }}
         onPointerDown={(event) => void handlePoringPointerDown(event)}
         onPointerMove={handlePoringPointerMove}
@@ -888,8 +947,7 @@ function App(): JSX.Element {
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault()
-        const paths = pathsFromDrop(event.dataTransfer.files)
-        void importDroppedFiles(paths)
+        void importDropPayload(event.dataTransfer)
       }}
     >
       <header className="titlebar drag-region">
