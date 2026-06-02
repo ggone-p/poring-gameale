@@ -31,6 +31,7 @@ const DEFAULT_SLOGAN_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软
 const DEFAULT_ICON_DIR = '\\\\nas-publish.gastudio.cn\\发行运营中心\\软件\\设计软件\\Poring图片助手\\应用商店图标'
 const APP_DISPLAY_NAME = '波利AI图助手'
 const DONE_PROGRESS_VALUE = '\u5df2\u5b8c\u6210all'
+const DONE_PROGRESS_FALLBACK_VALUES = [DONE_PROGRESS_VALUE, '\u5df2\u5b8c\u6210']
 const LOCAL_IMPORT_PORT = 17367
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
@@ -690,11 +691,13 @@ async function resolveProgressDoneValue(config: AppConfig): Promise<string> {
   )
   const field = (fieldsData.items || []).map(normalizeField).find((item) => item.fieldName === fieldName)
   const options = field?.options || []
-  const exact = options.find((option) => option.name === DONE_PROGRESS_VALUE)
+  const exact = DONE_PROGRESS_FALLBACK_VALUES.map((value) => options.find((option) => option.name === value)).find(Boolean)
   if (exact?.name) return exact.name
-  const normalizedTarget = DONE_PROGRESS_VALUE.toLowerCase().replace(/\s+/g, '')
-  const close = options.find((option) => option.name.toLowerCase().replace(/\s+/g, '') === normalizedTarget)
-  return close?.name || DONE_PROGRESS_VALUE
+  const normalizedTargets = DONE_PROGRESS_FALLBACK_VALUES.map((value) => value.toLowerCase().replace(/\s+/g, ''))
+  const close = options.find((option) => normalizedTargets.includes(option.name.toLowerCase().replace(/\s+/g, '')))
+  if (close?.name) return close.name
+  const completed = options.find((option) => option.name.includes('\u5b8c\u6210') && !option.name.includes('\u672a'))
+  return completed?.name || DONE_PROGRESS_VALUE
 }
 
 async function updateProgressDone(config: AppConfig, recordId: string): Promise<void> {
