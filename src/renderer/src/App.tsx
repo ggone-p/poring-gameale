@@ -116,6 +116,7 @@ function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
+  const [detailItemId, setDetailItemId] = useState<string>('')
   const [syncing, setSyncing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [updateStatus, setUpdateStatus] = useState('')
@@ -199,6 +200,10 @@ function App(): JSX.Element {
   const selectedItem = useMemo(
     () => queue.find((item) => item.id === selectedId) || queue[0],
     [queue, selectedId]
+  )
+  const detailItem = useMemo(
+    () => queue.find((item) => item.id === detailItemId),
+    [queue, detailItemId]
   )
   const activePoringFrames = useMemo(() => {
     if (poringMood === 'eating') return poringFrames.eat
@@ -1066,9 +1071,11 @@ function App(): JSX.Element {
               selectedId={selectedItem?.id || ''}
               uploading={uploading}
               onSelect={setSelectedId}
+              onShowDetails={setDetailItemId}
               onRemove={(id) => {
                 setQueue((current) => current.filter((item) => item.id !== id))
                 if (selectedId === id) setSelectedId('')
+                if (detailItemId === id) setDetailItemId('')
               }}
             />
             <div className="main-stage">
@@ -1119,6 +1126,7 @@ function App(): JSX.Element {
               上传并重命名
             </button>
           </footer>
+          {detailItem && <QueueDetailDialog item={detailItem} onClose={() => setDetailItemId('')} />}
         </>
       )}
     </div>
@@ -2197,6 +2205,7 @@ function ImageQueue({
   selectedId,
   uploading,
   onSelect,
+  onShowDetails,
   onRemove
 }: {
   items: QueueItem[]
@@ -2205,6 +2214,7 @@ function ImageQueue({
   selectedId: string
   uploading: boolean
   onSelect: (id: string) => void
+  onShowDetails: (id: string) => void
   onRemove: (id: string) => void
 }): JSX.Element {
   return (
@@ -2219,17 +2229,34 @@ function ImageQueue({
         items.map((item) => {
           const ready = isItemReady(item, config, fields)
           return (
-            <button
+            <div
               className={`queue-row ${selectedId === item.id ? 'active' : ''} ${ready ? 'ready' : ''}`}
               key={item.id}
               onClick={() => onSelect(item.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') onSelect(item.id)
+              }}
+              role="button"
+              tabIndex={0}
             >
               <img src={item.dataUrl} alt="" />
               <span>
                 <strong>{item.generatedName || item.fileName}</strong>
-                <small>{item.error || item.outputPath || (ready ? '已准备' : statusText(item.status))}</small>
+                <small>{queueSummary(item, ready)}</small>
               </span>
-              {statusIcon(item.status, ready)}
+              <button
+                className={`queue-status-btn ${item.error ? 'has-detail' : ''}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (item.status === 'completed' || item.status === 'failed' || item.error || item.outputPath) {
+                    onShowDetails(item.id)
+                  }
+                }}
+                title={item.status === 'completed' || item.status === 'failed' || item.error ? '查看详情' : statusText(item.status)}
+                type="button"
+              >
+                {statusIcon(item.status, ready, Boolean(item.error))}
+              </button>
               {!uploading && (
                 <i
                   onClick={(event) => {
@@ -2240,11 +2267,64 @@ function ImageQueue({
                   <X size={13} />
                 </i>
               )}
-            </button>
+            </div>
           )
         })
       )}
     </section>
+  )
+}
+
+function queueSummary(item: QueueItem, ready: boolean): string {
+  if (item.status === 'failed') return '处理失败，点击查看'
+  if (item.status === 'completed') return item.error ? '已完成，有提醒' : '已完成'
+  if (item.outputPath) return '本地已生成'
+  return ready ? '已准备' : statusText(item.status)
+}
+
+function QueueDetailDialog({ item, onClose }: { item: QueueItem; onClose: () => void }): JSX.Element {
+  const isSuccess = item.status === 'completed'
+  return (
+    <div className="detail-backdrop" onClick={onClose}>
+      <section className="queue-detail" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <span className={isSuccess ? 'ok' : item.status === 'failed' ? 'bad' : 'muted'}>
+            {statusIcon(item.status, item.status === 'waiting', Boolean(item.error))}
+          </span>
+          <div>
+            <strong>{isSuccess ? '处理完成' : item.status === 'failed' ? '处理失败' : '队列详情'}</strong>
+            <small>{item.generatedName || item.fileName}</small>
+          </div>
+          <button className="icon-btn" onClick={onClose} type="button" title="关闭">
+            <X size={15} />
+          </button>
+        </header>
+        <dl>
+          <div>
+            <dt>当前状态</dt>
+            <dd>{queueSummary(item, isSuccess)}</dd>
+          </div>
+          {item.outputPath && (
+            <div>
+              <dt>本地成品</dt>
+              <dd>{item.outputPath}</dd>
+            </div>
+          )}
+          {item.recordId && (
+            <div>
+              <dt>飞书记录</dt>
+              <dd>{item.recordId}</dd>
+            </div>
+          )}
+          {item.error && (
+            <div>
+              <dt>{isSuccess ? '回写提醒' : '错误信息'}</dt>
+              <dd>{item.error}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
+    </div>
   )
 }
 
@@ -2287,8 +2367,8 @@ function statusText(status: ImageItem['status']): string {
   }[status]
 }
 
-function statusIcon(status: ImageItem['status'], ready = false): JSX.Element {
-  if (status === 'completed') return <CheckCircle2 className="ok" size={16} />
+function statusIcon(status: ImageItem['status'], ready = false, hasWarning = false): JSX.Element {
+  if (status === 'completed') return <CheckCircle2 className={hasWarning ? 'warn' : 'ok'} size={16} />
   if (status === 'failed') return <CircleAlert className="bad" size={16} />
   if (status !== 'waiting') return <Loader2 className="spin" size={16} />
   if (ready) return <CheckCircle2 className="ready-icon" size={16} />

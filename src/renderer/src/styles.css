@@ -4353,3 +4353,210 @@ body,
 .overlay-handle img {
   background: transparent !important;
 }
+
+/* Queue feedback pass: short cards, clickable details, gentle motion. */
+.queue-row {
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+  animation: queueItemIn 180ms ease both;
+}
+
+.queue-row:hover {
+  transform: translateY(-1px);
+}
+
+.queue-row:active {
+  transform: translateY(0) scale(0.995);
+}
+
+.queue-row small {
+  max-height: 32px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.queue-status-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  justify-self: end;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #86868b;
+  cursor: default;
+}
+
+.queue-status-btn.has-detail,
+.queue-status-btn:has(.ok),
+.queue-status-btn:has(.warn),
+.queue-status-btn:has(.bad) {
+  cursor: pointer;
+}
+
+.queue-status-btn:hover {
+  background: rgba(29, 29, 31, 0.06);
+}
+
+.queue-row .warn {
+  color: #f59e0b !important;
+  stroke: #f59e0b !important;
+}
+
+.detail-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(245, 245, 247, 0.24);
+  backdrop-filter: blur(10px);
+  animation: detailFadeIn 140ms ease both;
+}
+
+.queue-detail {
+  width: min(520px, 100%);
+  max-height: min(520px, calc(100vh - 96px));
+  overflow: auto;
+  border: 1px solid rgba(210, 210, 215, 0.72);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.18),
+    0 2px 10px rgba(0, 0, 0, 0.06);
+  animation: detailPopIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.queue-detail header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  gap: 12px;
+  align-items: center;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid #f0f0f3;
+}
+
+.queue-detail header > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #f5f5f7;
+}
+
+.queue-detail header > span.ok {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.queue-detail header > span.bad {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.queue-detail header strong,
+.queue-detail header small {
+  display: block;
+}
+
+.queue-detail header strong {
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.queue-detail header small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.queue-detail dl {
+  margin: 0;
+  padding: 16px 18px 18px;
+}
+
+.queue-detail dl div + div {
+  margin-top: 14px;
+}
+
+.queue-detail dt {
+  margin-bottom: 5px;
+  color: #86868b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.queue-detail dd {
+  margin: 0;
+  color: #1d1d1f;
+  font-size: 13px;
+  line-height: 19px;
+  user-select: text;
+  -webkit-user-select: text;
+  word-break: break-word;
+}
+
+.preview,
+.overlay-controls .overlay-row,
+.field-card,
+.primary-btn {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.overlay-controls .overlay-row:hover,
+.field-card:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes queueItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes detailFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes detailPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
