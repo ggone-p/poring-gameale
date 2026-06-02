@@ -1,11 +1,19 @@
 let draggedImagePayload = null
+let contextImagePayload = null
 let dropTarget = null
 let hideTimer = 0
 
+document.addEventListener(
+  'contextmenu',
+  (event) => {
+    contextImagePayload = payloadFromElement(event.target)
+  },
+  true
+)
+
 document.addEventListener('dragstart', (event) => {
-  const image = findImage(event.target)
-  if (!image) return
-  draggedImagePayload = payloadFromImage(image)
+  draggedImagePayload = payloadFromElement(event.target)
+  if (!draggedImagePayload) return
   showDropTarget()
 })
 
@@ -13,10 +21,32 @@ document.addEventListener('dragend', () => {
   scheduleHide()
 })
 
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== 'BOLI_GET_CONTEXT_IMAGE') return false
+  sendResponse({ payload: contextImagePayload })
+  return false
+})
+
+function payloadFromElement(target) {
+  const image = findImage(target)
+  if (image) return payloadFromImage(image)
+  const canvas = findCanvas(target)
+  if (canvas) return payloadFromCanvas(canvas)
+  const background = findBackgroundImage(target)
+  if (background) return background
+  return null
+}
+
 function findImage(target) {
   if (!target || !(target instanceof Element)) return null
   if (target instanceof HTMLImageElement && imageSource(target)) return target
   return target.closest?.('img')
+}
+
+function findCanvas(target) {
+  if (!target || !(target instanceof Element)) return null
+  if (target instanceof HTMLCanvasElement) return target
+  return target.closest?.('canvas')
 }
 
 function imageSource(image) {
@@ -40,11 +70,38 @@ function fileNameFromImage(url, alt) {
   return `${(alt || 'browser-image').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'browser-image'}.png`
 }
 
+function payloadFromCanvas(canvas) {
+  try {
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      fileName: `browser-canvas-${Date.now()}.png`
+    }
+  } catch {
+    return null
+  }
+}
+
+function findBackgroundImage(target) {
+  if (!target || !(target instanceof Element)) return null
+  const elements = [target, ...(target.parentElement ? [target.parentElement] : [])]
+  for (const element of elements) {
+    const value = window.getComputedStyle(element).backgroundImage
+    const match = value.match(/url\((['"]?)(.*?)\1\)/)
+    if (match?.[2]) {
+      const url = new URL(match[2], location.href).href
+      return { url, fileName: fileNameFromImage(url, element.getAttribute('aria-label') || '') }
+    }
+  }
+  return null
+}
+
 function showDropTarget() {
   if (!dropTarget) {
     dropTarget = document.createElement('div')
     dropTarget.id = 'boli-import-drop-target'
-    dropTarget.innerHTML = '<span>波利</span><strong>拖到这里</strong>'
+    dropTarget.innerHTML = '<img src="" alt=""><strong>拖到这里</strong>'
+    const icon = dropTarget.querySelector('img')
+    icon.src = chrome.runtime.getURL('icons/icon-48.png')
     dropTarget.addEventListener('dragover', (event) => {
       event.preventDefault()
       event.dataTransfer.dropEffect = 'copy'

@@ -2,19 +2,32 @@ const BOLI_IMPORT_ENDPOINT = 'http://127.0.0.1:17367/import-image'
 const BOLI_HEALTH_ENDPOINT = 'http://127.0.0.1:17367/health'
 const MENU_SAVE_IMAGE = 'boli-save-image'
 
-chrome.runtime.onInstalled.addListener(() => {
+registerContextMenus()
+chrome.runtime.onInstalled.addListener(registerContextMenus)
+chrome.runtime.onStartup?.addListener(registerContextMenus)
+
+function registerContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_SAVE_IMAGE,
       title: '保存到波利AI图助手',
-      contexts: ['image']
+      contexts: ['all']
     })
   })
-})
+}
 
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId !== MENU_SAVE_IMAGE || !info.srcUrl) return
-  void importImage({ url: info.srcUrl, fileName: filenameFromUrl(info.srcUrl) })
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== MENU_SAVE_IMAGE) return
+  try {
+    const payload =
+      info.srcUrl && isImageLikeUrl(info.srcUrl)
+        ? { url: info.srcUrl, fileName: filenameFromUrl(info.srcUrl) }
+        : await getContextImageFromTab(tab)
+    if (!payload?.url && !payload?.dataUrl) throw new Error('没有识别到可导入的图片。')
+    await importImage(payload)
+  } catch (error) {
+    notify(error.message || String(error))
+  }
 })
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -88,6 +101,16 @@ function filenameFromUrl(url) {
   }
 }
 
+function isImageLikeUrl(url) {
+  return /^(https?:|file:|blob:|data:image\/)/i.test(url)
+}
+
+async function getContextImageFromTab(tab) {
+  if (!tab?.id) return null
+  const response = await chrome.tabs.sendMessage(tab.id, { type: 'BOLI_GET_CONTEXT_IMAGE' }).catch(() => null)
+  return response?.payload || null
+}
+
 function blobToDataUrl(blob) {
   return blob.arrayBuffer().then((buffer) => {
     const bytes = new Uint8Array(buffer)
@@ -103,7 +126,7 @@ function blobToDataUrl(blob) {
 function notify(message) {
   chrome.notifications?.create({
     type: 'basic',
-    iconUrl: 'icon.png',
+    iconUrl: 'icons/icon-128.png',
     title: '波利AI图助手',
     message
   })
