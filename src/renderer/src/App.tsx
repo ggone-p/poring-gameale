@@ -54,6 +54,8 @@ const poringFrames = {
 
 type QueueItem = ImageItem & {
   overlays: OverlayState
+  selections: UploadSelections
+  touchedSelections: Partial<Record<keyof UploadSelections, boolean>>
 }
 
 const overlayLabels: Record<OverlayKind, string> = {
@@ -75,6 +77,15 @@ const overlayDefaultScale: Record<OverlayKind, number> = {
 }
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm'])
+const selectionKeys: Array<keyof UploadSelections> = [
+  'language',
+  'size',
+  'assetContent',
+  'detailContent',
+  'designer',
+  'creative',
+  'completionDate'
+]
 
 type VideoFrameSelection = {
   id: string
@@ -185,6 +196,7 @@ function App(): JSX.Element {
         if (!current) return current
         const today = todayString()
         if (current.selections.completionDate === today) return current
+        setQueue((items) => items.map((item) => applyUntouchedSelections(item, { completionDate: today })))
         return {
           ...current,
           selections: {
@@ -369,7 +381,9 @@ function App(): JSX.Element {
     if (!config || !items.length) return
     const additions: QueueItem[] = items.map((item) => ({
       ...item,
-      overlays: cloneOverlays(config.overlays)
+      overlays: cloneOverlays(config.overlays),
+      selections: cloneSelections(config.selections),
+      touchedSelections: {}
     }))
     setQueue((current) => [...current, ...additions])
     setSelectedId((current) => current || additions[0].id)
@@ -648,7 +662,7 @@ function App(): JSX.Element {
         const resolved = withResolvedFieldMapping(baseConfig, next.fields)
         if (JSON.stringify(resolved.fieldMapping) !== JSON.stringify(baseConfig.fieldMapping)) {
           const saved = await window.assetUploader.saveConfig({ fieldMapping: resolved.fieldMapping })
-          setConfig(applyProjectDefaults(saved, next.fields, next.tables.find((table) => table.tableId === saved.feishu.tableId)?.name || ''))
+          applyConfigDefaults(applyProjectDefaults(saved, next.fields, next.tables.find((table) => table.tableId === saved.feishu.tableId)?.name || ''))
         }
       }
       const firstProjectTable = projectTables(next.tables)[0]
@@ -685,19 +699,24 @@ function App(): JSX.Element {
         }
       }
     })
-    setConfig(applyProjectDefaults(nextConfig, schema.fields, table?.name || ''))
+    applyConfigDefaults(applyProjectDefaults(nextConfig, schema.fields, table?.name || ''))
     setSyncing(true)
     try {
       const nextSchema = await window.assetUploader.syncSchema(tableId)
       setSchema(nextSchema)
       const resolved = withResolvedFieldMapping(nextConfig, nextSchema.fields)
       const saved = await window.assetUploader.saveConfig({ fieldMapping: resolved.fieldMapping })
-      setConfig(applyProjectDefaults(saved, nextSchema.fields, table?.name || ''))
+      applyConfigDefaults(applyProjectDefaults(saved, nextSchema.fields, table?.name || ''))
     } catch (error) {
       alert(error instanceof Error ? error.message : String(error))
     } finally {
       setSyncing(false)
     }
+  }
+
+  function applyConfigDefaults(nextConfig: AppConfig): void {
+    setConfig(nextConfig)
+    setQueue((current) => current.map((item) => applyUntouchedSelections(item, nextConfig.selections)))
   }
 
   function updateSelections(patch: Partial<UploadSelections>): void {
@@ -709,6 +728,25 @@ function App(): JSX.Element {
         ...patch
       }
     })
+    setQueue((current) =>
+      current.map((item) => {
+        if (selectedItem && item.id === selectedItem.id) {
+          const touchedSelections = { ...item.touchedSelections }
+          selectionKeys.forEach((key) => {
+            if (key in patch) touchedSelections[key] = true
+          })
+          return {
+            ...item,
+            selections: {
+              ...item.selections,
+              ...patch
+            },
+            touchedSelections
+          }
+        }
+        return applyUntouchedSelections(item, patch)
+      })
+    )
   }
 
   function updateConfig(patch: Partial<AppConfig>): void {
@@ -732,7 +770,11 @@ function App(): JSX.Element {
 
   function updateSelectedOverlays(next: OverlayState): void {
     if (!selectedItem) return
-    setQueue((current) => current.map((item) => (item.id === selectedItem.id ? { ...item, overlays: next } : item)))
+    setQueue((current) =>
+      current.map((item) =>
+        item.id === selectedItem.id ? { ...item, overlays: next } : item
+      )
+    )
   }
 
   function updateOverlay(kind: OverlayKind, patch: Partial<OverlaySettings>): void {
@@ -753,7 +795,7 @@ function App(): JSX.Element {
             }
           }
         }
-        if (shouldUpdateDefault && item.status === 'waiting' && !item.overlays[kind].assetPath) {
+        if (shouldUpdateDefault && item.status === 'waiting' && !Object.values(item.touchedSelections).some(Boolean) && !item.overlays[kind].assetPath) {
           return {
             ...item,
             overlays: {
@@ -870,27 +912,30 @@ function App(): JSX.Element {
 
   async function uploadAll(): Promise<void> {
     if (!config || !queue.length) return
+    const today = todayString()
+    const queueForUpload = queue.map((item) => applyUntouchedSelections(item, { completionDate: today }))
     const effectiveConfig: AppConfig = {
       ...config,
       selections: {
         ...config.selections,
-        completionDate: todayString()
+        completionDate: today
       }
     }
     setConfig(effectiveConfig)
+    setQueue(queueForUpload)
     setUploading(true)
     await window.assetUploader.saveConfig({
       ...effectiveConfig,
       selections: effectiveConfig.selections
     })
-    for (const item of queue) {
+    for (const item of queueForUpload) {
       if (item.status === 'completed') continue
       setQueue((current) =>
         current.map((entry) => (entry.id === item.id ? { ...entry, status: 'creating-record', error: '' } : entry))
       )
       const result = await window.assetUploader.uploadOne({
         item,
-        selections: effectiveConfig.selections,
+        selections: item.selections,
         overlays: item.overlays
       })
       setQueue((current) =>
@@ -979,6 +1024,7 @@ function App(): JSX.Element {
               config={config}
               schema={schema}
               syncing={syncing}
+              selections={selectedItem?.selections || config.selections}
               onProjectChange={(tableId) => void selectProjectTable(tableId)}
               onDesignerChange={(designer) => updateSelections({ designer })}
             />
@@ -1090,7 +1136,12 @@ function App(): JSX.Element {
                   <CanvasPreview item={selectedItem} assetFiles={assetFiles} onUpdateOverlay={updateOverlay} />
                 </div>
                 <OverlayControls item={selectedItem} assetFiles={assetFiles} onUpdateOverlay={updateOverlay} />
-                <FieldForm config={config} fields={schema.fields} onChange={updateSelections} />
+                <FieldForm
+                  config={config}
+                  fields={schema.fields}
+                  selections={selectedItem?.selections || config.selections}
+                  onChange={updateSelections}
+                />
               </section>
             </div>
           </section>
@@ -1131,6 +1182,24 @@ function App(): JSX.Element {
       )}
     </div>
   )
+}
+
+function cloneSelections(selections: UploadSelections): UploadSelections {
+  return { ...selections, detailContent: '' }
+}
+
+function applyUntouchedSelections(item: QueueItem, patch: Partial<UploadSelections>): QueueItem {
+  if (Object.values(item.touchedSelections).some(Boolean)) return item
+  const nextSelections = { ...item.selections }
+  let changed = false
+  selectionKeys.forEach((key) => {
+    if (!(key in patch) || item.touchedSelections[key]) return
+    const nextValue = patch[key] || ''
+    if (nextSelections[key] === nextValue) return
+    nextSelections[key] = nextValue
+    changed = true
+  })
+  return changed ? { ...item, selections: nextSelections } : item
 }
 
 function formatUpdateMessage(message: string): string {
@@ -1718,12 +1787,14 @@ function ProjectDefaults({
   config,
   schema,
   syncing,
+  selections,
   onProjectChange,
   onDesignerChange
 }: {
   config: AppConfig
   schema: SchemaSnapshot
   syncing: boolean
+  selections: UploadSelections
   onProjectChange: (tableId: string) => void
   onDesignerChange: (designer: string) => void
 }): JSX.Element {
@@ -1734,7 +1805,7 @@ function ProjectDefaults({
       <label>
         设计师
         {designerOptions.length ? (
-          <select value={config.selections.designer} onChange={(event) => onDesignerChange(event.target.value)}>
+          <select value={selections.designer} onChange={(event) => onDesignerChange(event.target.value)}>
             <option value="">选择设计师</option>
             {designerOptions.map((option) => (
               <option value={option} key={option}>
@@ -1744,7 +1815,7 @@ function ProjectDefaults({
           </select>
         ) : (
           <input
-            value={config.selections.designer}
+            value={selections.designer}
             onChange={(event) => onDesignerChange(event.target.value)}
             placeholder="默认设计师"
           />
@@ -2103,10 +2174,12 @@ function SettingsPanel({
 function FieldForm({
   config,
   fields,
+  selections,
   onChange
 }: {
   config: AppConfig
   fields: BitableField[]
+  selections: UploadSelections
   onChange: (patch: Partial<UploadSelections>) => void
 }): JSX.Element {
   function optionsFor(fieldName: string): string[] {
@@ -2117,13 +2190,13 @@ function FieldForm({
     <section className="field-grid">
       <ChipSelect
         label="语言"
-        value={config.selections.language}
+        value={selections.language}
         options={optionsFor(mapping.language)}
         onChange={(language) => onChange({ language })}
       />
       <ChipSelect
         label="尺寸"
-        value={config.selections.size}
+        value={selections.size}
         options={optionsFor(mapping.size)}
         onChange={(size) => onChange({ size })}
       />
@@ -2131,25 +2204,25 @@ function FieldForm({
         <span>完成日期</span>
         <input
           type="date"
-          value={config.selections.completionDate}
+          value={selections.completionDate}
           onChange={(event) => onChange({ completionDate: event.target.value })}
         />
       </label>
       <ChipSelect
         label="创意"
-        value={config.selections.creative}
+        value={selections.creative}
         options={optionsFor(mapping.creative)}
         onChange={(creative) => onChange({ creative })}
       />
       <ChipSelect
         label="素材形式"
-        value={config.selections.assetContent}
+        value={selections.assetContent}
         options={optionsFor(mapping.assetContent)}
         onChange={(assetContent) => onChange({ assetContent })}
       />
       <ChipSelect
         label="素材方向"
-        value={config.selections.detailContent}
+        value={selections.detailContent}
         options={optionsFor(mapping.detailContent)}
         onChange={(detailContent) => onChange({ detailContent })}
       />
@@ -2342,13 +2415,18 @@ function isItemReady(item: QueueItem, config: AppConfig, fields: BitableField[])
     'completionDate'
   ]
   const selectedTableReady = Boolean(config.feishu.tableId)
-  const fieldsReady = requiredSelections.every((key) => isSelectionValueReady(config, fields, key))
+  const fieldsReady = requiredSelections.every((key) => isSelectionValueReady(config, fields, item.selections, key))
   const overlaysReady = overlayKinds.every((kind) => !item.overlays[kind].enabled || Boolean(item.overlays[kind].assetPath))
   return selectedTableReady && schemaReady && fieldsReady && overlaysReady
 }
 
-function isSelectionValueReady(config: AppConfig, fields: BitableField[], key: keyof UploadSelections): boolean {
-  const value = config.selections[key]?.trim()
+function isSelectionValueReady(
+  config: AppConfig,
+  fields: BitableField[],
+  selections: UploadSelections,
+  key: keyof UploadSelections
+): boolean {
+  const value = selections[key]?.trim()
   if (!value) return false
   const fieldName = config.fieldMapping[key]
   const options = fieldName ? optionsForField(fields, fieldName) : []
