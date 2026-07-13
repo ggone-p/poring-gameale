@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
@@ -9,6 +9,11 @@ import type {
   AppConfig,
   AssetFile,
   BitableField,
+  CompressionOptions,
+  CompressionPreviewRequest,
+  CompressionPreviewResult,
+  CompressionRunRequest,
+  CompressionRunResult,
   FeishuCredentials,
   FeishuRecord,
   ImageItem,
@@ -19,7 +24,7 @@ import type {
   UploadRequest,
   UploadResult
 } from '../shared/types'
-import { defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflow } from '../shared/types'
+import { defaultCompression, defaultFieldMapping, defaultOverlays, defaultSelections, defaultWorkflow } from '../shared/types'
 
 const { autoUpdater } = electronUpdater
 const DEFAULT_APP_ID = 'cli_a80a7c95e83bd01c'
@@ -39,6 +44,12 @@ const EXPANDED_WIDTH = 1024
 const EXPANDED_HEIGHT = 768
 const INNER_WIDTH = 1024
 const INNER_HEIGHT = 768
+const TOOLBOX_WIDTH = 900
+const TOOLBOX_HEIGHT = 600
+const COMPRESSION_WIDTH = 1280
+const COMPRESSION_HEIGHT = 1024
+const COLLAPSED_WIDTH = 118
+const COLLAPSED_HEIGHT = 118
 const SOFTWARE_DESIGNER = '方攀'
 
 let mainWindow: BrowserWindow | null = null
@@ -49,6 +60,8 @@ let mediaServer: Server | null = null
 let mediaServerPort = 0
 let updateStatus = '尚未检查更新'
 let fallbackInstallerPath = ''
+let lastCollapsedPosition: { x: number; y: number } | null = null
+let suppressMoveSave = false
 
 let updateState = {
   phase: 'idle',
@@ -94,6 +107,7 @@ function defaultConfig(): AppConfig {
       iconDir: DEFAULT_ICON_DIR
     },
     workflow: defaultWorkflow,
+    compression: defaultCompression,
     overlays: defaultOverlays,
     selections: {
       ...defaultSelections,
@@ -117,6 +131,18 @@ function readConfig(): AppConfig {
       fieldMapping: { ...fallback.fieldMapping, ...parsed.fieldMapping },
       assetLibrary: { ...fallback.assetLibrary, ...parsed.assetLibrary },
       workflow: { ...fallback.workflow, ...parsed.workflow },
+      compression: {
+        ...fallback.compression,
+        ...parsed.compression,
+        defaultOptions: {
+          ...fallback.compression.defaultOptions,
+          ...parsed.compression?.defaultOptions
+        },
+        lastUsedOptions: {
+          ...fallback.compression.lastUsedOptions,
+          ...parsed.compression?.lastUsedOptions
+        }
+      },
       overlays: {
         logo: { ...fallback.overlays.logo, ...parsed.overlays?.logo },
         slogan: { ...fallback.overlays.slogan, ...parsed.overlays?.slogan },
@@ -144,6 +170,18 @@ function applyBuiltInDefaults(config: AppConfig): AppConfig {
       ...config.workflow,
       updateUrl: config.workflow.updateUrl || DEFAULT_UPDATE_URL
     },
+    compression: {
+      ...defaultCompression,
+      ...config.compression,
+      defaultOptions: {
+        ...defaultCompression.defaultOptions,
+        ...config.compression?.defaultOptions
+      },
+      lastUsedOptions: {
+        ...defaultCompression.lastUsedOptions,
+        ...config.compression?.lastUsedOptions
+      }
+    },
     assetLibrary: {
       ...config.assetLibrary,
       logoDir: config.assetLibrary.logoDir || DEFAULT_LOGO_DIR,
@@ -162,6 +200,18 @@ function saveConfig(patch: Partial<AppConfig>): AppConfig {
     fieldMapping: { ...current.fieldMapping, ...patch.fieldMapping },
     assetLibrary: { ...current.assetLibrary, ...patch.assetLibrary },
     workflow: { ...current.workflow, ...patch.workflow },
+    compression: {
+      ...current.compression,
+      ...patch.compression,
+      defaultOptions: {
+        ...current.compression.defaultOptions,
+        ...patch.compression?.defaultOptions
+      },
+      lastUsedOptions: {
+        ...current.compression.lastUsedOptions,
+        ...patch.compression?.lastUsedOptions
+      }
+    },
     overlays: {
       logo: { ...current.overlays.logo, ...patch.overlays?.logo },
       slogan: { ...current.overlays.slogan, ...patch.overlays?.slogan },
@@ -399,6 +449,15 @@ function mediaUrlForPath(filePath: string): string {
   return `http://127.0.0.1:${mediaServerPort}/media?path=${encodeURIComponent(filePath)}&v=${statSync(filePath).mtimeMs}`
 }
 
+function setWindowBoundsSafely(bounds: Electron.Rectangle, animate = true): void {
+  if (!mainWindow) return
+  suppressMoveSave = true
+  mainWindow.setBounds(bounds, animate)
+  setTimeout(() => {
+    suppressMoveSave = false
+  }, 160)
+}
+
 function createWindow(): void {
   const config = readConfig()
   mainWindow = new BrowserWindow({
@@ -431,8 +490,12 @@ function createWindow(): void {
 
   mainWindow.on('moved', () => {
     if (!mainWindow) return
+    if (suppressMoveSave) return
+    const currentConfig = readConfig()
+    if (!currentConfig.window.collapsed) return
     const [x, y] = mainWindow.getPosition()
-    saveConfig({ window: { x, y, collapsed: readConfig().window.collapsed } })
+    lastCollapsedPosition = { x, y }
+    saveConfig({ window: { x, y, collapsed: true } })
   })
 
   mainWindow.on('closed', () => {
@@ -492,19 +555,104 @@ function createApplicationMenu(): void {
 
 function expandWindow(): void {
   if (!mainWindow) return
-  mainWindow.setResizable(true)
-  mainWindow.setSize(EXPANDED_WIDTH, EXPANDED_HEIGHT, true)
-  mainWindow.setMinimumSize(INNER_WIDTH, INNER_HEIGHT)
+  mainWindow.setOpacity(1)
+  const config = readConfig()
+  if (config.window.collapsed) {
+    const bounds = mainWindow.getBounds()
+    lastCollapsedPosition = { x: bounds.x, y: bounds.y }
+  }
+  resizeExpandedWindow(EXPANDED_WIDTH, EXPANDED_HEIGHT)
   mainWindow.webContents.send('window:state', 'expanded')
   saveConfig({ window: { ...readConfig().window, collapsed: false } })
 }
 
-function collapseWindow(): void {
+function resizeExpandedWindow(width: number, height: number, animate = true): void {
   if (!mainWindow) return
+  const currentBounds = mainWindow.getBounds()
+  const workArea = screen.getDisplayMatching(currentBounds).workArea
+  const nextWidth = Math.max(640, Math.min(width, workArea.width - 24))
+  const nextHeight = Math.max(560, Math.min(height, workArea.height - 24))
+  const nextX = Math.min(Math.max(currentBounds.x, workArea.x + 12), workArea.x + workArea.width - nextWidth - 12)
+  const nextY = Math.min(Math.max(currentBounds.y, workArea.y + 12), workArea.y + workArea.height - nextHeight - 12)
+
+  mainWindow.setResizable(true)
+  mainWindow.setMinimumSize(Math.min(INNER_WIDTH, nextWidth), Math.min(INNER_HEIGHT, nextHeight))
+  setWindowBoundsSafely({ x: nextX, y: nextY, width: nextWidth, height: nextHeight }, animate)
+}
+
+function setWindowMode(mode: 'upload' | 'toolbox' | 'compression'): void {
+  if (!mainWindow) return
+  const config = readConfig()
+  const wasCollapsed = config.window.collapsed
+  if (wasCollapsed) {
+    const bounds = mainWindow.getBounds()
+    lastCollapsedPosition = { x: bounds.x, y: bounds.y }
+    mainWindow.setOpacity(0)
+  }
+  if (mode === 'compression') {
+    resizeExpandedWindow(COMPRESSION_WIDTH, COMPRESSION_HEIGHT, !wasCollapsed)
+  } else if (mode === 'toolbox') {
+    resizeExpandedWindow(TOOLBOX_WIDTH, TOOLBOX_HEIGHT, !wasCollapsed)
+  } else {
+    resizeExpandedWindow(EXPANDED_WIDTH, EXPANDED_HEIGHT, !wasCollapsed)
+  }
+  mainWindow.webContents.send('window:state', 'expanded')
+  saveConfig({ window: { ...readConfig().window, collapsed: false } })
+  if (wasCollapsed) {
+    setTimeout(() => mainWindow?.setOpacity(1), 48)
+  } else {
+    mainWindow.setOpacity(1)
+  }
+}
+
+function resolveCollapseTarget(): { x: number; y: number; deltaX: number; deltaY: number } {
+  if (!mainWindow) return { x: 0, y: 0, deltaX: 0, deltaY: 0 }
+  const config = readConfig()
+  const currentBounds = mainWindow.getBounds()
+  const workArea = screen.getDisplayMatching(currentBounds).workArea
+  const fallbackX =
+    typeof config.window.x === 'number'
+      ? config.window.x
+      : Math.round(currentBounds.x + (currentBounds.width - COLLAPSED_WIDTH) / 2)
+  const fallbackY =
+    typeof config.window.y === 'number'
+      ? config.window.y
+      : Math.round(currentBounds.y + (currentBounds.height - COLLAPSED_HEIGHT) / 2)
+  const targetPosition = lastCollapsedPosition || { x: fallbackX, y: fallbackY }
+  const nextX = Math.min(
+    Math.max(Math.round(targetPosition.x), workArea.x + 8),
+    workArea.x + workArea.width - COLLAPSED_WIDTH - 8
+  )
+  const nextY = Math.min(
+    Math.max(Math.round(targetPosition.y), workArea.y + 8),
+    workArea.y + workArea.height - COLLAPSED_HEIGHT - 8
+  )
+  lastCollapsedPosition = { x: nextX, y: nextY }
+  return {
+    x: nextX,
+    y: nextY,
+    deltaX: nextX - currentBounds.x + COLLAPSED_WIDTH / 2 - currentBounds.width / 2,
+    deltaY: nextY - currentBounds.y + COLLAPSED_HEIGHT / 2 - currentBounds.height / 2
+  }
+}
+
+function revealCollapsedWindow(): void {
+  mainWindow?.setOpacity(1)
+}
+
+function collapseWindow(options: { deferReveal?: boolean } = {}): void {
+  if (!mainWindow) return
+  const target = resolveCollapseTarget()
+  saveConfig({ window: { x: target.x, y: target.y, collapsed: true } })
+  mainWindow.setOpacity(0)
   mainWindow.setMinimumSize(112, 112)
-  mainWindow.setSize(118, 118, true)
+  setWindowBoundsSafely({ x: target.x, y: target.y, width: COLLAPSED_WIDTH, height: COLLAPSED_HEIGHT }, false)
   mainWindow.webContents.send('window:state', 'collapsed')
-  saveConfig({ window: { ...readConfig().window, collapsed: true } })
+  if (!options.deferReveal) {
+    setTimeout(() => {
+      revealCollapsedWindow()
+    }, 120)
+  }
 }
 
 function outputDirectory(config: AppConfig, dateText: string, item?: ImageItem): string {
@@ -843,6 +991,15 @@ async function compositeImageToFile(inputPath: string, overlays: OverlayState, o
   ).filter(Boolean) as sharp.OverlayOptions[]
   let pipeline = sharp(inputPath)
   if (overlayOptions.length) pipeline = pipeline.composite(overlayOptions)
+  if (['.jpg', '.jpeg'].includes(extname(outputPath).toLowerCase())) {
+    pipeline = pipeline.flatten({ background: '#ffffff' }).jpeg({
+      quality: 92,
+      mozjpeg: true,
+      progressive: true,
+      chromaSubsampling: '4:4:4',
+      optimizeCoding: true
+    })
+  }
   await pipeline.toFile(outputPath)
 }
 
@@ -859,6 +1016,195 @@ async function previewComposite(inputPath: string, overlays: OverlayState, width
     // Best effort cleanup.
   }
   return `data:image/png;base64,${buffer.toString('base64')}`
+}
+
+function normalizeCompressionOptions(options: CompressionOptions): CompressionOptions {
+  return {
+    ...defaultCompression.defaultOptions,
+    ...options,
+    quality: Math.max(1, Math.min(100, Math.round(options.quality || defaultCompression.defaultOptions.quality))),
+    longEdge: Math.max(16, Math.round(options.longEdge || defaultCompression.defaultOptions.longEdge)),
+    width: Math.max(16, Math.round(options.width || defaultCompression.defaultOptions.width)),
+    height: Math.max(16, Math.round(options.height || defaultCompression.defaultOptions.height)),
+    background: options.background || defaultCompression.defaultOptions.background,
+    pngCompressionLevel: Math.max(
+      0,
+      Math.min(9, Math.round(options.pngCompressionLevel ?? defaultCompression.defaultOptions.pngCompressionLevel))
+    ),
+    webpAlphaQuality: Math.max(
+      0,
+      Math.min(100, Math.round(options.webpAlphaQuality ?? defaultCompression.defaultOptions.webpAlphaQuality))
+    ),
+    encoderEffort: Math.max(0, Math.min(9, Math.round(options.encoderEffort ?? defaultCompression.defaultOptions.encoderEffort)))
+  }
+}
+
+function mimeForFormat(format: string): string {
+  if (format === 'jpg') return 'image/jpeg'
+  if (format === 'jpeg') return 'image/jpeg'
+  if (format === 'webp') return 'image/webp'
+  if (format === 'avif') return 'image/avif'
+  return 'image/png'
+}
+
+function outputExtensionForFormat(format: string): string {
+  if (format === 'jpeg') return '.jpg'
+  if (format === 'jpg') return '.jpg'
+  if (format === 'webp') return '.webp'
+  if (format === 'avif') return '.avif'
+  return '.png'
+}
+
+function resolveCompressionFormat(sourceFormat: string | undefined, options: CompressionOptions): string {
+  if (options.format !== 'original') return options.format
+  const normalized = (sourceFormat || 'png').toLowerCase()
+  if (normalized === 'jpg') return 'jpeg'
+  if (['jpeg', 'png', 'webp', 'avif'].includes(normalized)) return normalized
+  return 'png'
+}
+
+function compressedOutputPath(inputPath: string, outputDir: string, outputFormat: string): string {
+  const targetDir = outputDir || join(dirname(inputPath), 'output')
+  const sourceBase = basename(inputPath, extname(inputPath))
+  mkdirSync(targetDir, { recursive: true })
+  return uniquePath(join(targetDir, `${sourceBase}${outputExtensionForFormat(outputFormat)}`))
+}
+
+async function compressionPipeline(inputPath: string, optionsInput: CompressionOptions): Promise<{
+  buffer: Buffer
+  format: string
+  width: number
+  height: number
+  warning?: string
+}> {
+  const options = normalizeCompressionOptions(optionsInput)
+  const metadata = await sharp(inputPath).metadata()
+  const outputFormat = resolveCompressionFormat(metadata.format, options)
+  let pipeline = sharp(inputPath, { failOn: 'none' }).rotate()
+  if (options.resizeMode === 'longEdge') {
+    pipeline = pipeline.resize({
+      width: options.longEdge,
+      height: options.longEdge,
+      fit: 'inside',
+      withoutEnlargement: true
+    })
+  } else if (options.resizeMode === 'exact') {
+    pipeline = pipeline.resize({
+      width: options.width,
+      height: options.height,
+      fit: 'inside',
+      withoutEnlargement: true
+    })
+  }
+
+  if (!options.removeMetadata) pipeline = pipeline.withMetadata()
+
+  let warning = ''
+  if (outputFormat === 'jpeg') {
+    if (metadata.hasAlpha) warning = '透明区域已按背景色合成为 JPG。'
+    pipeline = pipeline.flatten({ background: options.background }).jpeg({
+      quality: options.quality,
+      mozjpeg: true,
+      progressive: options.jpegProgressive,
+      chromaSubsampling: options.jpegChromaSubsampling,
+      trellisQuantisation: true,
+      overshootDeringing: true,
+      optimizeScans: options.jpegProgressive,
+      optimizeCoding: true
+    })
+  } else if (outputFormat === 'webp') {
+    pipeline = pipeline.webp({
+      quality: options.quality,
+      effort: Math.min(6, options.encoderEffort),
+      lossless: options.webpLossless,
+      nearLossless: options.webpNearLossless,
+      alphaQuality: options.webpAlphaQuality,
+      smartSubsample: true,
+      preset: 'picture'
+    })
+  } else if (outputFormat === 'avif') {
+    pipeline = pipeline.avif({ quality: options.quality, effort: options.encoderEffort, lossless: options.webpLossless })
+  } else {
+    pipeline = pipeline.png({
+      compressionLevel: options.pngCompressionLevel,
+      palette: options.webpLossless ? false : options.pngPalette,
+      quality: options.quality,
+      effort: options.encoderEffort
+    })
+  }
+
+  const buffer = await pipeline.toBuffer()
+  const outputMeta = await sharp(buffer).metadata()
+  return {
+    buffer,
+    format: outputFormat,
+    width: outputMeta.width || metadata.width || 1,
+    height: outputMeta.height || metadata.height || 1,
+    warning
+  }
+}
+
+async function inspectCompressionImage(filePath: string): Promise<{
+  path: string
+  fileName: string
+  width: number
+  height: number
+  format: string
+  size: number
+  hasAlpha: boolean
+  dataUrl: string
+}> {
+  if (!IMAGE_EXTENSIONS.has(extname(filePath).toLowerCase())) throw new Error('请选择 PNG / JPG / WebP 图片。')
+  const metadata = await sharp(filePath).metadata()
+  const buffer = readFileSync(filePath)
+  const format = metadata.format || extname(filePath).replace('.', '') || 'png'
+  return {
+    path: filePath,
+    fileName: basename(filePath),
+    width: metadata.width || 1,
+    height: metadata.height || 1,
+    format,
+    size: buffer.length,
+    hasAlpha: Boolean(metadata.hasAlpha),
+    dataUrl: `data:${mimeForFormat(format)};base64,${buffer.toString('base64')}`
+  }
+}
+
+async function previewCompression(request: CompressionPreviewRequest): Promise<CompressionPreviewResult> {
+  const result = await compressionPipeline(request.path, request.options)
+  return {
+    dataUrl: `data:${mimeForFormat(result.format)};base64,${result.buffer.toString('base64')}`,
+    size: result.buffer.length,
+    format: result.format,
+    width: result.width,
+    height: result.height,
+    warning: result.warning
+  }
+}
+
+async function runCompression(request: CompressionRunRequest): Promise<CompressionRunResult[]> {
+  if (request.outputDir) mkdirSync(request.outputDir, { recursive: true })
+  const results: CompressionRunResult[] = []
+  for (const item of request.items) {
+    try {
+      const compressed = await compressionPipeline(item.path, item.options)
+      const outputPath = compressedOutputPath(item.path, request.outputDir, compressed.format)
+      writeFileSync(outputPath, compressed.buffer)
+      results.push({
+        id: item.id,
+        outputPath,
+        outputSize: compressed.buffer.length,
+        format: compressed.format,
+        warning: compressed.warning
+      })
+    } catch (error) {
+      results.push({
+        id: item.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+  return results
 }
 
 async function uploadMediaWithParentType(
@@ -916,14 +1262,14 @@ async function uploadOne(request: UploadRequest): Promise<UploadResult> {
     const created = await createRecord(config, request.selections)
     recordId = created.recordId
     generatedName = await waitForGeneratedName(config, created.recordId)
-    const sourceExt = extname(request.item.path) || '.png'
-    const uploadName = `${generatedName}${sourceExt}`
+    const outputExt = '.jpg'
+    const uploadName = `${generatedName}${outputExt}`
     const configuredOutputDir = outputDirectory(config, request.selections.completionDate, request.item)
     const targetDir = configuredOutputDir || dirname(request.item.path)
     mkdirSync(targetDir, { recursive: true })
-    const targetPath = uniquePath(join(targetDir, `${generatedName}${sourceExt}`))
+    const targetPath = uniquePath(join(targetDir, `${generatedName}${outputExt}`))
     outputPath = targetPath
-    const tempPath = join(targetDir, `.asset-uploader-${Date.now()}-${Math.random().toString(16).slice(2)}${sourceExt}`)
+    const tempPath = join(targetDir, `.asset-uploader-${Date.now()}-${Math.random().toString(16).slice(2)}${outputExt}`)
 
     await compositeImageToFile(request.item.path, request.overlays, tempPath)
     if (targetPath === request.item.path) {
@@ -1138,30 +1484,6 @@ app.on('window-all-closed', () => {
   if (!isQuitting) createWindow()
 })
 
-autoUpdater.on('checking-for-update', () => {
-  updateStatus = '正在检查更新'
-})
-
-autoUpdater.on('update-available', () => {
-  updateStatus = '发现新版本，正在下载'
-})
-
-autoUpdater.on('update-not-available', () => {
-  updateStatus = '已经是最新版本'
-})
-
-autoUpdater.on('download-progress', (progress) => {
-  updateStatus = `正在下载更新 ${Math.round(progress.percent)}%`
-})
-
-autoUpdater.on('update-downloaded', () => {
-  updateStatus = '更新已下载，重启软件后安装'
-})
-
-autoUpdater.on('error', (error) => {
-  updateStatus = error.message
-})
-
 autoUpdater.on('checking-for-update', () => publishUpdateState('checking', '正在检查更新'))
 autoUpdater.on('update-available', () => publishUpdateState('available', '发现新版本，正在下载'))
 autoUpdater.on('update-not-available', () => publishUpdateState('not-available', '已经是最新版本'))
@@ -1206,15 +1528,28 @@ ipcMain.handle('files:pick-directory', async () => {
 ipcMain.handle('files:list-assets', (_, dir: string) => listAssets(dir))
 ipcMain.handle('feishu:sync-schema', (_, tableId?: string) => syncSchema(tableId))
 ipcMain.handle('upload:one', (_, request: UploadRequest) => uploadOne(request))
-ipcMain.handle('window:collapse', () => collapseWindow())
+ipcMain.handle('compression:inspect', (_, path: string) => inspectCompressionImage(path))
+ipcMain.handle('compression:preview', (_, request: CompressionPreviewRequest) => previewCompression(request))
+ipcMain.handle('compression:run', (_, request: CompressionRunRequest) => runCompression(request))
+ipcMain.handle('window:prepare-collapse', () => {
+  const target = resolveCollapseTarget()
+  return { deltaX: target.deltaX, deltaY: target.deltaY }
+})
+ipcMain.handle('window:collapse', (_, options?: { deferReveal?: boolean }) => collapseWindow(options))
+ipcMain.handle('window:reveal-collapsed', () => revealCollapsedWindow())
 ipcMain.handle('window:expand', () => expandWindow())
+ipcMain.handle('window:set-mode', (_, mode: 'upload' | 'toolbox' | 'compression') => setWindowMode(mode))
 ipcMain.handle('window:get-position', () => {
   if (!mainWindow) return { x: 0, y: 0 }
   const [x, y] = mainWindow.getPosition()
   return { x, y }
 })
 ipcMain.handle('window:set-position', (_, x: number, y: number) => {
-  mainWindow?.setPosition(Math.round(x), Math.round(y), false)
+  const nextX = Math.round(x)
+  const nextY = Math.round(y)
+  lastCollapsedPosition = { x: nextX, y: nextY }
+  mainWindow?.setPosition(nextX, nextY, false)
+  saveConfig({ window: { x: nextX, y: nextY, collapsed: true } })
 })
 ipcMain.handle('window:always-on-top', (_, value: boolean) => mainWindow?.setAlwaysOnTop(value))
 ipcMain.handle('image:preview-composite', (_, imagePath: string, overlays: OverlayState, width: number, height: number) =>

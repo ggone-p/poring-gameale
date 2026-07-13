@@ -48,10 +48,23 @@ video {
   position: relative;
   user-select: none;
   cursor: grab;
+  animation: floatingPoringReveal 120ms ease-out both;
 }
 
 .floating-poring:active {
   cursor: grabbing;
+}
+
+@keyframes floatingPoringReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .poring-image {
@@ -3931,6 +3944,16 @@ textarea {
   box-shadow:
     0 26px 64px rgba(0, 0, 0, 0.2),
     0 8px 20px rgba(0, 0, 0, 0.1);
+  will-change: opacity, filter;
+  transition:
+    opacity 90ms ease-out,
+    filter 90ms ease-out;
+}
+
+.shell.is-minimizing {
+  opacity: 0;
+  filter: blur(1px) saturate(0.96);
+  pointer-events: none;
 }
 
 .video-shell {
@@ -4558,5 +4581,2809 @@ body,
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* Toolbox + compression v2 from Stitch structure. */
+.toolbox-view-v2 {
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+  background: #faf9fe;
+}
+
+.toolbox-inner-v2 {
+  max-width: 852px;
+  margin: 0 auto;
+}
+
+.toolbox-inner-v2 h2 {
+  margin: 0 0 24px;
+  color: #1a1b1f;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: 0;
+}
+
+.toolbox-card-v2 em {
+  color: #444748;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 14px;
+  letter-spacing: 0.03em;
+}
+
+.toolbox-grid-v2 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.toolbox-card-v2 {
+  min-height: 210px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 24px;
+  border: 1px solid #c4c7c7;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1a1b1f;
+  text-align: left;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  transition:
+    transform 300ms ease,
+    box-shadow 300ms ease,
+    border-color 300ms ease,
+    background-color 300ms ease;
+}
+
+.toolbox-card-v2.available,
+.toolbox-card-primary-v2 {
+  cursor: pointer;
+}
+
+.toolbox-card-v2.available:hover,
+.toolbox-card-primary-v2:hover {
+  transform: translateY(-2px);
+  border-color: #000000;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.1);
+}
+
+.toolbox-card-v2.disabled {
+  border-color: #e3e2e7;
+  background: rgba(244, 243, 248, 0.5);
+  opacity: 0.72;
+}
+
+.toolbox-card-v2.wide {
+  grid-column: span 2;
+  min-height: 220px;
+  border-color: #e3e2e7;
+  background: #ffffff;
+}
+
+.toolbox-card-icon-v2 {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: #eeedf3;
+  color: #000000;
+}
+
+.toolbox-card-v2.available:hover .toolbox-card-icon-v2,
+.toolbox-card-primary-v2:hover .toolbox-card-icon-v2 {
+  background: #000000;
+  color: #ffffff;
+}
+
+.toolbox-card-v2 strong {
+  margin-bottom: 4px;
+  color: #1a1b1f;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: -0.01em;
+}
+
+.toolbox-card-v2 small {
+  flex: 1;
+  color: #444748;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.toolbox-card-action-v2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.toolbox-card-v2 em {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  padding: 3px 9px;
+  border: 1px solid #c4c7c7;
+  border-radius: 999px;
+  background: rgba(238, 237, 243, 0.8);
+}
+
+.toolbox-card-v2.disabled em {
+  border-color: transparent;
+  color: #747878;
+  background: #e3e2e7;
+}
+
+.toolbox-preview-v2 {
+  grid-column: span 2;
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid #c4c7c7;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.toolbox-preview-shell-v2 {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 96px;
+  align-items: start;
+  gap: 1px;
+  background: #e3e2e7;
+  color: #1a1b1f;
+  font-size: 9px;
+}
+
+.toolbox-preview-shell-v2 span {
+  height: 32px;
+  display: grid;
+  place-items: center;
+  background: #faf9fe;
+}
+
+.compression-workbench-v2 {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr) 72px;
+  overflow: hidden;
+  background: #faf9fe;
+  color: #1d1d1f;
+}
+
+.compression-queue-v2 {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e5e5ea;
+  background: #ffffff;
+}
+
+.compression-queue-v2 header,
+.compression-settings-v2 header {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0f0f3;
+  background: #ffffff;
+}
+
+.compression-queue-v2 header strong,
+.compression-settings-v2 header strong {
+  display: block;
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 20px;
+}
+
+.compression-queue-v2 header span,
+.compression-settings-v2 header span {
+  display: block;
+  color: #86868b;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.text-link-btn {
+  border: 0;
+  background: transparent;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.compression-drop-v2 {
+  margin: 16px;
+  padding: 20px 14px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  border: 1.5px dashed #d2d2d7;
+  border-radius: 16px;
+  background: #fbfbfd;
+  color: #1d1d1f;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.compression-drop-v2:hover {
+  transform: translateY(-1px);
+  border-color: #1d1d1f;
+  background: #ffffff;
+}
+
+.compression-drop-v2 strong {
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 20px;
+}
+
+.compression-drop-v2 small,
+.compression-empty-copy {
+  color: #86868b;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.compression-list-v2 {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 14px;
+}
+
+.compression-row-v2 {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 68px;
+  margin-bottom: 8px;
+  padding: 9px 28px 9px 9px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: #ffffff;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.compression-row-v2:hover {
+  transform: translateY(-1px);
+  background: #f5f5f7;
+}
+
+.compression-row-v2.active {
+  border-color: #1d1d1f;
+  background: #fbfbfd;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
+}
+
+.compression-row-v2 img {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #f5f5f7;
+}
+
+.compression-row-v2 strong,
+.compression-row-v2 small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.compression-row-v2 strong {
+  color: #1d1d1f;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.compression-row-v2 small {
+  color: #86868b;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.compression-row-v2 b {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font-size: 10px;
+  line-height: 12px;
+}
+
+.compression-preview-v2 {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+  background: #faf9fe;
+}
+
+.compression-preview-title-v2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 36px;
+}
+
+.compression-preview-title-v2 strong,
+.compression-preview-title-v2 small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.compression-preview-title-v2 strong {
+  max-width: 520px;
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 21px;
+}
+
+.compression-preview-title-v2 small {
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.auto-preview-chip-v2 {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auto-preview-chip-v2.running {
+  background: #1d1d1f;
+  color: #ffffff;
+}
+
+.compare-stage-v2 {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  border-radius: 18px;
+  background:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.045) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.045) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.045) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.045) 75%),
+    #eeedf3;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+  background-size: 20px 20px;
+}
+
+.compare-image-shell-v2 {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 22px 70px rgba(0, 0, 0, 0.12),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.compare-original-v2,
+.compare-compressed-v2,
+.compare-compressed-v2 img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.compare-original-v2,
+.compare-compressed-v2 img {
+  object-fit: contain;
+}
+
+.compare-compressed-v2 {
+  overflow: hidden;
+}
+
+.compare-loading-v2 {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  color: #6e6e73;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(8px);
+}
+
+.compare-axis-v2 {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  width: 2px;
+  transform: translateX(-1px);
+  background: #ffffff;
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.compare-axis-v2 span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1d1d1f;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
+}
+
+.compare-axis-v2 span svg:first-child {
+  transform: rotate(90deg);
+}
+
+.compare-axis-v2 span svg:last-child {
+  margin-left: -9px;
+  transform: rotate(-90deg);
+}
+
+.compare-slider-v2 {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: ew-resize;
+}
+
+.compare-pill-v2 {
+  position: absolute;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 16px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+}
+
+.compare-pill-v2.original {
+  left: 16px;
+}
+
+.compare-pill-v2.compressed {
+  right: 16px;
+  background: #1d1d1f;
+}
+
+.compare-pill-v2 strong {
+  color: inherit;
+  font-weight: 800;
+}
+
+.compression-message-v2 {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e5e5ea;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.compression-message-v2.bad {
+  color: #ef4444;
+}
+
+.compression-empty-stage-v2 {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  color: #86868b;
+  text-align: center;
+}
+
+.compression-empty-stage-v2 strong {
+  color: #1d1d1f;
+  font-size: 15px;
+}
+
+.compression-settings-v2 {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #e5e5ea;
+  background: #ffffff;
+}
+
+.compression-options-v2 {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.compress-section-v2,
+.advanced-options-v2,
+.compression-output-v2 {
+  display: grid;
+  gap: 14px;
+}
+
+.compress-section-v2 h3 {
+  margin: 0;
+  color: #1d1d1f;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.compression-options-v2 label,
+.compression-output-v2 label,
+.advanced-options-v2 summary {
+  display: grid;
+  gap: 7px;
+  color: #3a3a3c;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+.compression-options-v2 input,
+.compression-options-v2 select,
+.compression-output-v2 input {
+  min-height: 40px;
+  width: 100%;
+  border: 1px solid #e5e5ea;
+  border-radius: 10px;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font-size: 13px;
+  outline: none;
+}
+
+.compression-options-v2 input:focus,
+.compression-options-v2 select:focus,
+.compression-output-v2 input:focus {
+  border-color: #1d1d1f;
+  box-shadow: 0 0 0 2px rgba(29, 29, 31, 0.08);
+}
+
+.compression-options-v2 input[type='range'] {
+  min-height: auto;
+  accent-color: #1d1d1f;
+}
+
+.compression-options-v2 input[type='color'] {
+  width: 44px;
+  padding: 3px;
+}
+
+.form-line-v2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.form-line-v2 b {
+  color: #1d1d1f;
+  font-size: 12px;
+}
+
+.compression-hint-v2 {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #fff8e6;
+  color: #8a5a00;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.advanced-options-v2 {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f3;
+}
+
+.advanced-options-v2 summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced-options-v2 summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-grid-v2 {
+  display: grid;
+  gap: 12px;
+}
+
+.compression-output-v2 {
+  padding: 16px;
+  border-top: 1px solid #f0f0f3;
+  background: #ffffff;
+}
+
+.compression-output-v2 .settings-path-row {
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.compression-output-v2 .icon-btn {
+  min-width: 38px;
+  height: 40px;
+  border-color: #e5e5ea;
+  background: #f5f5f7;
+  color: #1d1d1f;
+}
+
+.compression-footer-v2 {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 28px;
+  border-top: 1px solid #e5e5ea;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+}
+
+.compression-footer-v2 .primary-btn {
+  min-width: 172px;
+  min-height: 44px;
+  border-radius: 999px;
+  background: #1d1d1f;
+  border-color: #1d1d1f;
+  color: #ffffff;
+}
+
+.compression-footer-v2 .primary-btn:disabled {
+  background: #c7c7cc;
+  border-color: #c7c7cc;
+}
+
+@media (max-width: 920px) {
+  .compression-workbench-v2 {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .compression-settings-v2 {
+    display: none;
+  }
+
+  .toolbox-grid-v2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.tool-shell .titlebar {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.toolbox-view {
+  flex: 1;
+  min-height: 0;
+  padding: 38px 44px;
+  background: #f5f5f7;
+  overflow: auto;
+}
+
+.toolbox-hero {
+  max-width: 620px;
+  margin-bottom: 28px;
+}
+
+.toolbox-kicker {
+  color: var(--accent-color);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.toolbox-hero h1 {
+  margin: 8px 0 8px;
+  color: #1d1d1f;
+  font-size: 30px;
+  line-height: 36px;
+  letter-spacing: 0;
+}
+
+.toolbox-hero p {
+  margin: 0;
+  color: #6e6e73;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.tool-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.tool-card {
+  min-height: 188px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid rgba(210, 210, 215, 0.76);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1d1d1f;
+  text-align: left;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.06);
+}
+
+.tool-card.available {
+  cursor: pointer;
+}
+
+.tool-card.available:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent-color) 38%, #d2d2d7);
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.1);
+}
+
+.tool-card.disabled {
+  opacity: 0.62;
+}
+
+.tool-card-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #f5f5f7;
+  color: #1d1d1f;
+}
+
+.tool-card strong {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.tool-card small {
+  color: #6e6e73;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.tool-card em {
+  margin-top: auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #1d1d1f;
+  background: #f5f5f7;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* Reference-aligned toolbox/compression pass. Keep this below older tool styles. */
+.tool-shell .titlebar {
+  height: 64px;
+  padding: 0 24px;
+  background: #faf9fe;
+  border-bottom: 0;
+}
+
+.tool-shell .title-actions .icon-btn:first-child {
+  display: none;
+}
+
+.tool-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #000000;
+}
+
+.tool-title > div {
+  display: none;
+}
+
+.tool-title strong {
+  color: #000000;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.toolbox-view-v2 {
+  height: 100%;
+  overflow: hidden;
+  padding: 24px;
+  background: #faf9fe;
+}
+
+.toolbox-inner-v2 {
+  max-width: 852px;
+  height: 100%;
+  margin: 0 auto;
+}
+
+.toolbox-inner-v2 h2 {
+  margin: 0 0 24px;
+  color: #000000;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.toolbox-grid-v2 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.toolbox-card-v2 {
+  min-height: 220px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 24px;
+  border: 1px solid #c4c7c7;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1a1b1f;
+  text-align: left;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.toolbox-card-v2.disabled {
+  border-color: #e3e2e7;
+  background: rgba(244, 243, 248, 0.5);
+  opacity: 0.72;
+}
+
+.toolbox-card-primary-v2 {
+  cursor: pointer;
+}
+
+.toolbox-card-primary-v2:hover {
+  border-color: #000000;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.toolbox-card-icon-v2 {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: #eeedf3;
+  color: #000000;
+}
+
+.toolbox-card-primary-v2:hover .toolbox-card-icon-v2 {
+  background: #000000;
+  color: #ffffff;
+}
+
+.toolbox-card-v2 em {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  padding: 3px 9px;
+  border: 1px solid #c4c7c7;
+  border-radius: 999px;
+  background: rgba(238, 237, 243, 0.8);
+  color: #444748;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.toolbox-card-v2.disabled em {
+  border-color: transparent;
+  color: #747878;
+  background: #e3e2e7;
+}
+
+.toolbox-card-v2 strong {
+  margin: 0 0 4px;
+  color: #1a1b1f;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.toolbox-card-v2 small {
+  color: #444748;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.toolbox-card-action-v2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.toolbox-preview-v2 {
+  grid-column: span 2;
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid #c4c7c7;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.toolbox-preview-shell-v2 {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 28% 41% 31%;
+  grid-template-rows: 34px 1fr;
+  background: #f4f3f8;
+  color: #1a1b1f;
+  font-size: 9px;
+}
+
+.toolbox-preview-shell-v2 .mini-title {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 96px;
+  border-bottom: 1px solid #e3e2e7;
+  background: #faf9fe;
+}
+
+.toolbox-preview-shell-v2 .mini-title span {
+  display: grid;
+  place-items: center;
+  border-right: 1px solid #e3e2e7;
+}
+
+.mini-sidebar,
+.mini-canvas,
+.mini-panel {
+  padding: 16px;
+  background: #ffffff;
+}
+
+.mini-sidebar {
+  border-right: 1px solid #e3e2e7;
+}
+
+.mini-canvas {
+  display: grid;
+  place-items: center;
+  margin: 22px;
+  border-radius: 14px;
+  color: #8b9ab1;
+  background: #eeedf3;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.08);
+}
+
+.mini-panel {
+  border-left: 1px solid #e3e2e7;
+}
+
+.mini-sidebar strong,
+.mini-panel strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 9px;
+}
+
+.mini-sidebar small,
+.mini-panel small {
+  color: #8b9ab1;
+  font-size: 8px;
+}
+
+.compression-reference {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr) 278px;
+  grid-template-rows: minmax(0, 1fr) 54px;
+  overflow: hidden;
+  background: #faf9fe;
+  color: #1a1b1f;
+}
+
+.compression-ref-queue,
+.compression-ref-settings {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #faf9fe;
+}
+
+.compression-ref-queue {
+  border-right: 1px solid #e3e2e7;
+}
+
+.compression-ref-settings {
+  border-left: 1px solid #e3e2e7;
+}
+
+.compression-ref-queue header,
+.compression-ref-settings header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid #e3e2e7;
+  background: #f4f3f8;
+}
+
+.compression-ref-queue header strong,
+.compression-ref-settings header strong {
+  color: #000000;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.compression-ref-drop {
+  margin: 16px;
+  min-height: 112px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed #c4c7c7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1a1b1f;
+  cursor: pointer;
+}
+
+.compression-ref-drop strong {
+  color: #000000;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.compression-ref-drop small {
+  color: #444748;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.compression-ref-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 16px;
+}
+
+.compression-ref-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 68px;
+  margin-bottom: 8px;
+  padding: 8px 28px 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.compression-ref-row.active {
+  border: 1.5px solid #000000;
+}
+
+.compression-ref-row img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #eeedf3;
+}
+
+.compression-ref-row strong,
+.compression-ref-row small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.compression-ref-row strong {
+  color: #000000;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.compression-ref-row small {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #444748;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.compression-ref-row b {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #eeedf3;
+  color: #1a1b1f;
+  font-size: 10px;
+}
+
+.compression-ref-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, #d6d6d8 25%, transparent 25%),
+    linear-gradient(-45deg, #d6d6d8 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d6d6d8 75%),
+    linear-gradient(-45deg, transparent 75%, #d6d6d8 75%),
+    #eeeeef;
+  background-position:
+    0 0,
+    0 12px,
+    12px -12px,
+    -12px 0;
+  background-size: 24px 24px;
+}
+
+.compression-ref-file-chip {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  z-index: 8;
+  display: grid;
+  gap: 2px;
+  max-width: 220px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  backdrop-filter: blur(8px);
+}
+
+.compression-ref-file-chip strong,
+.compression-ref-file-chip span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.compression-ref-file-chip strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.compression-ref-file-chip span {
+  font-size: 11px;
+  opacity: 0.82;
+}
+
+.compression-ref-image {
+  position: absolute;
+  inset: 0;
+}
+
+.compression-ref-empty {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  color: #747878;
+  text-align: center;
+}
+
+.compression-ref-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.84);
+  color: #ffffff;
+}
+
+.compression-ref-toolbar button {
+  width: 24px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.compression-ref-toolbar span {
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.compression-ref-saving {
+  position: absolute;
+  right: 14px;
+  bottom: 64px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #000000;
+  color: #ffffff;
+}
+
+.compression-ref-saving strong {
+  padding: 7px 10px;
+  font-size: 18px;
+}
+
+.compression-ref-saving span {
+  padding: 9px 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+}
+
+.compression-ref-options {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.compression-ref-options section,
+.compression-ref-options .advanced-options-v2,
+.compression-ref-output {
+  display: grid;
+  gap: 14px;
+}
+
+.compression-ref-options h3 {
+  margin: 0 0 4px;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.compression-ref-options label,
+.compression-ref-output label {
+  display: grid;
+  gap: 7px;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.compression-ref-options input,
+.compression-ref-options select,
+.compression-ref-output input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #c4c7c7;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #1a1b1f;
+  font-size: 13px;
+  outline: none;
+}
+
+.compression-ref-options input[type='range'] {
+  min-height: auto;
+  accent-color: #000000;
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #444748;
+  font-size: 12px;
+}
+
+.color-field input[type='color'] {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+}
+
+.compression-ref-output {
+  padding: 16px;
+  border-top: 1px solid #e3e2e7;
+}
+
+.compression-ref-output .settings-path-row {
+  grid-template-columns: minmax(0, 1fr) 36px;
+}
+
+.restore-default-btn {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: #000000;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.compression-ref-footer {
+  grid-column: 1 / -1;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+  border-top: 1px solid #e3e2e7;
+  background: #faf9fe;
+}
+
+.compression-ref-stats,
+.compression-ref-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.compression-ref-stats {
+  color: #444748;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.compression-ref-stats strong {
+  color: #000000;
+}
+
+.compression-ref-stats b {
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: #eeedf3;
+  color: #444748;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.compression-ref-actions .secondary-btn {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 1px solid #c4c7c7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #444748;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.compression-ref-actions .primary-btn {
+  min-width: 114px;
+  min-height: 32px;
+  border-radius: 8px;
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
+}
+
+.compression-workbench {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr) 300px;
+  grid-template-rows: minmax(0, 1fr) 74px;
+  background: #f5f5f7;
+}
+
+.compression-queue,
+.compression-settings {
+  min-height: 0;
+  padding: 18px;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.compression-queue {
+  border-right: 1px solid #e5e5ea;
+}
+
+.compression-settings {
+  border-left: 1px solid #e5e5ea;
+}
+
+.link-btn {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent-color);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.compression-drop {
+  width: 100%;
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px dashed #d2d2d7;
+  border-radius: 18px;
+  background: #fbfbfd;
+  color: #1d1d1f;
+  cursor: pointer;
+}
+
+.compression-drop small {
+  color: #86868b;
+}
+
+.compression-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 9px;
+  border: 1px solid #e5e5ea;
+  border-radius: 15px;
+  background: #fbfbfd;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.compression-row:hover {
+  transform: translateY(-1px);
+}
+
+.compression-row.active {
+  border-color: color-mix(in srgb, var(--accent-color) 55%, #d2d2d7);
+  background: color-mix(in srgb, var(--accent-color) 7%, #ffffff);
+}
+
+.compression-row img {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.compression-row strong,
+.compression-row small {
+  overflow: hidden;
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.compression-row strong {
+  color: #1d1d1f;
+  font-size: 12px;
+}
+
+.compression-row small {
+  color: #86868b;
+  font-size: 11px;
+}
+
+.compression-row b {
+  position: absolute;
+  right: 26px;
+  top: 8px;
+  color: var(--accent-color);
+  font-size: 10px;
+}
+
+.queue-remove-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #86868b;
+  cursor: pointer;
+}
+
+.compression-preview {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  overflow: auto;
+}
+
+.compression-preview-head,
+.compression-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.compression-preview-head strong,
+.compression-settings-head strong {
+  display: block;
+  color: #1d1d1f;
+  font-size: 15px;
+  line-height: 21px;
+}
+
+.compression-preview-head small,
+.compression-settings-head small {
+  color: #86868b;
+  font-size: 12px;
+}
+
+.compare-stage {
+  flex: 1;
+  min-height: 390px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.compare-stage figure {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.compare-stage img,
+.preview-placeholder,
+.compression-empty-stage {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  object-fit: contain;
+  border: 1px solid #e5e5ea;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 20px 58px rgba(0, 0, 0, 0.06);
+}
+
+.preview-placeholder,
+.compression-empty-stage {
+  display: grid;
+  place-items: center;
+  color: #86868b;
+  font-size: 13px;
+}
+
+.compression-empty-stage {
+  align-content: center;
+  gap: 8px;
+}
+
+.compression-empty-stage strong {
+  color: #1d1d1f;
+}
+
+.compression-empty-stage span {
+  color: #86868b;
+  font-size: 12px;
+}
+
+.compare-stage figcaption {
+  color: #6e6e73;
+  font-size: 12px;
+}
+
+.compression-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  border-radius: 14px;
+  color: #92400e;
+  background: rgba(245, 158, 11, 0.08);
+  font-size: 12px;
+}
+
+.compression-message.bad {
+  border-color: rgba(239, 68, 68, 0.24);
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.compression-options {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  margin-top: 18px;
+}
+
+.compression-options label,
+.compression-output label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #424245;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.compression-options input,
+.compression-options select,
+.compression-output input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  background: #fbfbfd;
+  color: #1d1d1f;
+  outline: none;
+}
+
+.compression-options input[type='range'] {
+  min-height: auto;
+  padding: 0;
+}
+
+.compression-options input[type='color'] {
+  width: 52px;
+  padding: 3px;
+}
+
+.compression-size-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.compression-hint {
+  margin: -4px 0 0;
+  color: #b45309;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.compression-output {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #e5e5ea;
+}
+
+.compression-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 28px;
+  border-top: 1px solid #e5e5ea;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.compression-footer .primary-btn {
+  min-width: 164px;
+  min-height: 44px;
+  border-radius: 999px;
+}
+
+/* Squoosh-inspired compression pass. Keeps the existing app shell, but makes
+   compression feel like a visual editor instead of a settings form. */
+.compression-workbench {
+  grid-template-columns: 188px minmax(0, 1fr) 292px;
+  grid-template-rows: minmax(0, 1fr) 72px;
+  background: #111114;
+}
+
+.compression-queue {
+  padding: 16px 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: #fbfbfd;
+}
+
+.compression-preview {
+  position: relative;
+  gap: 12px;
+  padding: 22px 24px 18px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, #1f2025 0%, #101114 100%);
+  color: #ffffff;
+}
+
+.compression-settings {
+  padding: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: #202124;
+  color: #ffffff;
+}
+
+.compression-settings-head {
+  padding: 14px 16px;
+  background: var(--accent-color);
+  color: #ffffff;
+}
+
+.compression-settings-head span {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.compression-settings-head small {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.compress-panel-title {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.compression-options,
+.compression-output {
+  padding: 16px;
+}
+
+.compression-options {
+  margin-top: 0;
+}
+
+.compression-options label,
+.compression-output label {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+}
+
+.compression-options input,
+.compression-options select,
+.compression-output input {
+  min-height: 40px;
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: #111114;
+  color: #ffffff;
+}
+
+.compression-options input[type='range'] {
+  accent-color: var(--accent-color);
+}
+
+.compression-output {
+  margin-top: 0;
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.compression-output .settings-path-row {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.compression-output .icon-btn {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #111114;
+  color: #ffffff;
+}
+
+.compression-hint {
+  color: #ffd166;
+}
+
+.squoosh-stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
+}
+
+.squoosh-stage-head strong {
+  display: block;
+  max-width: 560px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 21px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.squoosh-stage-head small {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+}
+
+.auto-preview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auto-preview-chip.running {
+  color: #ffffff;
+  background: color-mix(in srgb, var(--accent-color) 34%, rgba(255, 255, 255, 0.1));
+}
+
+.squoosh-compare {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    #15161a;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+  background-size: 20px 20px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 28px 80px rgba(0, 0, 0, 0.34);
+}
+
+.compare-original,
+.compare-compressed,
+.compare-compressed img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.compare-original,
+.compare-compressed img {
+  object-fit: contain;
+}
+
+.compare-original {
+  opacity: 0.54;
+  filter: saturate(0.86) brightness(0.72);
+}
+
+.compare-compressed {
+  overflow: hidden;
+}
+
+.compare-compressed img {
+  filter: none;
+}
+
+.compare-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+}
+
+.compare-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+  background: rgba(255, 255, 255, 0.88);
+  pointer-events: none;
+}
+
+.compare-divider span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: #050505;
+  color: var(--accent-color);
+  font-size: 16px;
+  letter-spacing: -0.2em;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+}
+
+.compare-slider {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: ew-resize;
+}
+
+.squoosh-stat {
+  position: absolute;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #ffffff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.squoosh-stat.original {
+  left: 18px;
+}
+
+.squoosh-stat.compressed {
+  right: 18px;
+  background: var(--accent-color);
+}
+
+.squoosh-stat strong,
+.squoosh-stat span {
+  display: block;
+  color: inherit;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.squoosh-stat strong {
+  font-weight: 800;
+}
+
+.compression-message {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.34);
+  color: #ffd166;
+}
+
+.compression-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+}
+
+.compression-footer .primary-btn {
+  background: #1d1d1f;
+  border-color: #1d1d1f;
+}
+
+.compression-footer .primary-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+}
+
+.compression-footer .primary-btn:disabled {
+  background: #c7c7cc;
+  border-color: #c7c7cc;
+}
+
+/* Final reference lock for the right-click toolbox and image compression experiment. */
+.toolbox-shell {
+  border-radius: 12px;
+  clip-path: inset(0 round 12px);
+  background: #faf9fe;
+}
+
+.compression-shell {
+  border: 0;
+  border-radius: 0;
+  clip-path: none;
+  background: #faf9fe;
+  box-shadow: none;
+}
+
+.compression-shell::after {
+  display: none;
+}
+
+.toolbox-shell .titlebar,
+.compression-shell .titlebar {
+  height: 64px;
+  padding: 0 24px;
+  flex-shrink: 0;
+  background: #faf9fe;
+  border-bottom: 1px solid #e3e2e7;
+}
+
+.compression-shell .titlebar {
+  background: #faf9fe;
+}
+
+.toolbox-shell .tool-title strong,
+.compression-shell .tool-title strong {
+  color: #000000;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.toolbox-shell .tool-title .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.compression-shell .title-actions,
+.toolbox-shell .title-actions {
+  gap: 18px;
+}
+
+.compression-shell .icon-btn,
+.toolbox-shell .icon-btn {
+  color: #55575a;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.compression-shell .icon-btn:hover,
+.toolbox-shell .icon-btn:hover {
+  color: #000000;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.toolbox-shell .toolbox-view-v2 {
+  flex: 1;
+  min-height: 0;
+  padding: 44px 24px 28px;
+  background: #faf9fe;
+}
+
+.toolbox-shell .toolbox-inner-v2 {
+  max-width: 852px;
+}
+
+.toolbox-shell .toolbox-grid-v2 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.toolbox-shell .toolbox-card-v2,
+.toolbox-shell .toolbox-preview-v2 {
+  min-height: 220px;
+  border-radius: 12px;
+}
+
+.compression-shell .compression-reference {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  grid-template-columns: 288px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr) 54px;
+  background: #faf9fe;
+}
+
+.compression-shell .compression-ref-queue,
+.compression-shell .compression-ref-settings {
+  background: #faf9fe;
+}
+
+.compression-shell .compression-ref-queue header,
+.compression-shell .compression-ref-settings header {
+  height: 56px;
+  padding: 0 16px;
+  background: #f4f3f8;
+  border-bottom: 1px solid #e3e2e7;
+}
+
+.compression-shell .compression-ref-queue header strong,
+.compression-shell .compression-ref-settings header strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.compression-shell .compression-ref-drop {
+  min-height: 112px;
+  margin: 16px;
+  border-radius: 8px;
+}
+
+.compression-shell .compression-ref-canvas {
+  background-color: #eeeeef;
+  background-image:
+    linear-gradient(45deg, #d8d8da 25%, transparent 25%),
+    linear-gradient(-45deg, #d8d8da 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d8d8da 75%),
+    linear-gradient(-45deg, transparent 75%, #d8d8da 75%);
+  background-position:
+    0 0,
+    0 12px,
+    12px -12px,
+    -12px 0;
+  background-size: 24px 24px;
+}
+
+.compression-shell .compression-ref-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.compression-shell .compare-original-v2 {
+  position: absolute;
+  inset: 0;
+}
+
+.compression-shell .compare-compressed-v2 {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.compression-shell .compare-compressed-v2 img {
+  position: absolute;
+  inset: 0;
+}
+
+.compression-shell .compare-loading-v2 {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+}
+
+.compression-shell .compare-axis-v2 {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 7;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.92);
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+.compression-shell .compare-axis-v2 span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #000000;
+  color: #ffffff;
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.compression-shell .compare-slider-v2 {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: ew-resize;
+}
+
+.compression-shell .compression-ref-file-chip {
+  top: 16px;
+  left: 18px;
+  max-width: 230px;
+  border-radius: 7px;
+}
+
+.compression-shell .compression-ref-toolbar {
+  bottom: 56px;
+  transform: translateX(-50%);
+}
+
+.compression-shell .compression-ref-saving {
+  bottom: 56px;
+}
+
+.compression-shell .compression-ref-options {
+  padding: 16px;
+  background: #faf9fe;
+}
+
+.compression-shell .compression-ref-options section {
+  gap: 14px;
+}
+
+.compression-shell .compression-ref-options h3 {
+  margin: 0 0 4px;
+  color: #1a1b1f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compression-shell .compression-ref-options label,
+.compression-shell .compression-ref-output label {
+  color: #1a1b1f;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.compression-shell .compression-ref-options input,
+.compression-shell .compression-ref-options select,
+.compression-shell .compression-ref-output input {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #c4c7c7;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.compression-shell .compression-ref-options input[type='range'] {
+  padding: 0;
+  border: 0;
+  accent-color: #000000;
+}
+
+.compression-shell .advanced-options-v2 {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e3e2e7;
+}
+
+.compression-shell .advanced-options-v2 summary {
+  cursor: pointer;
+  color: #1a1b1f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compression-shell .advanced-grid-v2 {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.compression-shell .settings-check {
+  grid-template-columns: 20px minmax(0, 1fr);
+  display: grid;
+  align-items: center;
+  gap: 10px;
+}
+
+.compression-shell .settings-check input {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  accent-color: #000000;
+}
+
+.compression-shell .compression-ref-output {
+  padding: 16px;
+  background: #faf9fe;
+  border-top: 1px solid #e3e2e7;
+}
+
+.compression-shell .compression-ref-footer {
+  height: 54px;
+  background: #faf9fe;
+}
+
+.compression-shell .compression-ref-actions .primary-btn {
+  min-width: 128px;
+  border-radius: 8px;
+  background: #000000;
+  border-color: #000000;
+}
+
+.compression-shell .compression-ref-actions .secondary-btn {
+  border-radius: 8px;
+}
+
+/* Compression iteration: cleaner canvas, working toolbar, Chinese parameter panel, progress. */
+.compression-shell .compression-ref-canvas {
+  background: #f4f3f8;
+}
+
+.compression-shell .compression-ref-image {
+  background: #f4f3f8;
+}
+
+.compression-shell .compare-original-v2,
+.compression-shell .compare-compressed-v2 img {
+  transition: transform 120ms ease;
+}
+
+.compression-shell .compression-ref-toolbar {
+  gap: 1px;
+  padding: 4px;
+}
+
+.compression-shell .compression-ref-toolbar button {
+  min-width: 26px;
+  height: 24px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.compression-shell .compression-ref-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.compression-shell .compression-ref-toolbar span {
+  min-width: 44px;
+  text-align: center;
+}
+
+.compression-shell .compression-ref-saving {
+  border-radius: 6px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.22);
+}
+
+.compression-shell .compression-ref-saving strong {
+  min-width: 92px;
+  text-align: center;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.compression-row-progress {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 5px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eeedf3;
+}
+
+.compression-row-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #000000;
+  transition: width 180ms ease;
+}
+
+.compression-total-progress {
+  width: 120px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eeedf3;
+}
+
+.compression-total-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #000000;
+  transition: width 180ms ease;
+}
+
+.compression-shell .compression-ref-options {
+  padding: 16px;
+}
+
+.compression-shell .compression-ref-output {
+  margin-top: 18px;
+  padding: 18px 0 0;
+  border-top: 1px solid #e3e2e7;
+  background: transparent;
+}
+
+.compression-shell .advanced-options-v2 {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #e3e2e7;
+}
+
+.compression-shell .advanced-options-v2 summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.compression-shell .advanced-options-v2 summary::-webkit-details-marker {
+  display: none;
+}
+
+.compression-shell .advanced-options-v2 summary::after {
+  content: '⌄';
+  font-size: 16px;
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.compression-shell .advanced-options-v2[open] summary::after {
+  transform: rotate(0deg);
+}
+
+.compression-shell .settings-check span {
+  color: #444748;
+  font-size: 12px;
+}
+
+/* Compression polish: make canvas controls clickable and tighten the settings panel. */
+.compression-shell {
+  font-family: Inter, "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+.compression-shell .compare-slider-v2 {
+  z-index: 9;
+}
+
+.compression-shell .compare-original-base-v2,
+.compression-shell .compare-compressed-base-v2,
+.compression-shell .compare-original-pane-v2,
+.compression-shell .compare-original-pane-v2 img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 140ms ease;
+}
+
+.compression-shell .compare-original-pane-v2 {
+  overflow: hidden;
+  z-index: 4;
+}
+
+.compression-shell .compare-compressed-base-v2,
+.compression-shell .compare-original-base-v2 {
+  z-index: 2;
+}
+
+.compression-shell .compare-label-v2 {
+  position: absolute;
+  top: 76px;
+  z-index: 22;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.compression-shell .compare-label-original-v2 {
+  left: 16px;
+}
+
+.compression-shell .compare-label-compressed-v2 {
+  right: 16px;
+}
+
+.compression-shell .compression-ref-toolbar,
+.compression-shell .compression-ref-saving {
+  z-index: 24;
+  pointer-events: auto;
+}
+
+.compression-shell .compression-ref-toolbar {
+  left: 50%;
+  bottom: 30px;
+  gap: 2px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.82);
+}
+
+.compression-shell .compression-ref-toolbar button {
+  width: 24px;
+  min-width: 24px;
+  height: 22px;
+  padding: 0;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.compression-shell .compression-ref-toolbar span {
+  min-width: 40px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.compression-shell .compression-ref-saving {
+  right: 14px;
+  bottom: 30px;
+}
+
+.compression-shell .compression-ref-saving strong {
+  min-width: 76px;
+  padding: 7px 10px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.compression-shell .compression-ref-saving span {
+  min-width: 52px;
+  padding: 8px 9px;
+  text-align: center;
+}
+
+.compression-shell .color-field {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #444748;
+}
+
+.compression-shell .color-field input[type='color'] {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  flex: 0 0 28px;
+  padding: 2px;
+  border: 1px solid #c4c7c7;
+  border-radius: 3px;
+  background: #ffffff;
+}
+
+.compression-shell .compression-ref-stats {
+  gap: 10px;
+  font-size: 11px;
+}
+
+.compression-shell .compression-ref-stats strong {
+  color: #000000;
+  font-weight: 800;
+}
+
+.compression-shell .compression-ref-stats b {
+  min-width: 72px;
+  text-align: center;
+}
+
+/* Keep tool windows visually consistent with the main Boli shell. */
+.toolbox-shell,
+.compression-shell {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 22px;
+  clip-path: inset(0 round 22px);
+  background: #ffffff;
+}
+
+.compression-shell::after,
+.toolbox-shell::after {
+  display: block;
+}
+
+/* Final toolbox/compression refinements. */
+.toolbox-shell .toolbox-preview-v2 {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.toolbox-product-shot-v2 {
+  height: 100%;
+  min-height: 220px;
+  display: grid;
+  grid-template-columns: 27% minmax(0, 1fr) 31%;
+  grid-template-rows: 34px 1fr;
+  overflow: hidden;
+  border: 1px solid rgba(24, 24, 27, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1d1d1f;
+  font-size: 9px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.toolbox-product-shot-v2 .shot-title-v2 {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 94px;
+  align-items: center;
+  border-bottom: 1px solid rgba(24, 24, 27, 0.08);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.toolbox-product-shot-v2 .shot-title-v2 > * {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid rgba(24, 24, 27, 0.08);
+}
+
+.toolbox-product-shot-v2 .shot-title-v2 > :last-child {
+  border-right: 0;
+}
+
+.shot-sidebar-v2,
+.shot-panel-v2 {
+  padding: 17px 16px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.shot-sidebar-v2 {
+  border-right: 1px solid rgba(24, 24, 27, 0.08);
+}
+
+.shot-panel-v2 {
+  border-left: 1px solid rgba(24, 24, 27, 0.08);
+}
+
+.shot-sidebar-v2 strong,
+.shot-panel-v2 strong {
+  display: block;
+  margin-bottom: 10px;
+  color: #1d1d1f;
+  font-size: 9px;
+}
+
+.shot-sidebar-v2 small,
+.shot-panel-v2 small {
+  color: #8a94a6;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.shot-canvas-v2 {
+  display: grid;
+  place-items: center;
+  margin: 22px;
+  border-radius: 14px;
+  background: #f3f4f7;
+  color: #8a94a6;
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.1);
+}
+
+.compression-shell .compression-ref-output {
+  display: grid;
+  gap: 10px;
+}
+
+.compression-shell .output-mode-check {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 2px;
+  gap: 8px;
+  color: #444748;
+}
+
+.compression-shell .output-mode-check input {
+  width: 16px;
+  height: 16px;
+}
+
+.compression-shell .settings-path-row button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.compression-shell .compression-row-progress {
+  height: 3px;
+  overflow: hidden;
+  background: #ececf1;
+}
+
+.compression-shell .compression-ref-row.is-compressing .compression-row-progress i {
+  animation: compression-row-working 900ms ease-in-out infinite alternate;
+}
+
+@keyframes compression-row-working {
+  from {
+    opacity: 0.45;
+    transform: translateX(-10%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }

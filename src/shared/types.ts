@@ -48,6 +48,80 @@ export interface WorkflowPreferences {
   keepInBackground: boolean
 }
 
+export type CompressionFormat = 'original' | 'jpeg' | 'png' | 'webp' | 'avif'
+export type CompressionResizeMode = 'none' | 'longEdge' | 'exact'
+
+export interface CompressionOptions {
+  format: CompressionFormat
+  quality: number
+  resizeMode: CompressionResizeMode
+  longEdge: number
+  width: number
+  height: number
+  background: string
+  removeMetadata: boolean
+  jpegProgressive: boolean
+  jpegChromaSubsampling: '4:4:4' | '4:2:0'
+  pngCompressionLevel: number
+  pngPalette: boolean
+  webpLossless: boolean
+  webpNearLossless: boolean
+  webpAlphaQuality: number
+  encoderEffort: number
+}
+
+export interface CompressionPreferences {
+  outputDir: string
+  useCustomOutputDir: boolean
+  defaultOptions: CompressionOptions
+  lastUsedOptions: CompressionOptions
+}
+
+export interface CompressionInspectResult {
+  path: string
+  fileName: string
+  width: number
+  height: number
+  format: string
+  size: number
+  hasAlpha: boolean
+  dataUrl: string
+}
+
+export interface CompressionPreviewRequest {
+  path: string
+  options: CompressionOptions
+}
+
+export interface CompressionPreviewResult {
+  dataUrl: string
+  size: number
+  format: string
+  width: number
+  height: number
+  warning?: string
+}
+
+export interface CompressionRunItem {
+  id: string
+  path: string
+  options: CompressionOptions
+}
+
+export interface CompressionRunRequest {
+  outputDir: string
+  items: CompressionRunItem[]
+}
+
+export interface CompressionRunResult {
+  id: string
+  outputPath?: string
+  outputSize?: number
+  format?: string
+  warning?: string
+  error?: string
+}
+
 export interface OverlaySettings {
   enabled: boolean
   assetPath: string
@@ -79,6 +153,7 @@ export interface AppConfig {
   fieldMapping: FieldMapping
   assetLibrary: AssetLibrary
   workflow: WorkflowPreferences
+  compression: CompressionPreferences
   overlays: OverlayState
   selections: LastSelections
   window: {
@@ -190,6 +265,32 @@ export const defaultWorkflow: WorkflowPreferences = {
   organizeByMonth: true,
   launchAtLogin: true,
   keepInBackground: true
+}
+
+export const defaultCompressionOptions: CompressionOptions = {
+  format: 'webp',
+  quality: 85,
+  resizeMode: 'none',
+  longEdge: 1600,
+  width: 1080,
+  height: 1080,
+  background: '#ffffff',
+  removeMetadata: true,
+  jpegProgressive: true,
+  jpegChromaSubsampling: '4:4:4',
+  pngCompressionLevel: 9,
+  pngPalette: false,
+  webpLossless: false,
+  webpNearLossless: false,
+  webpAlphaQuality: 100,
+  encoderEffort: 6
+}
+
+export const defaultCompression: CompressionPreferences = {
+  outputDir: '',
+  useCustomOutputDir: false,
+  defaultOptions: defaultCompressionOptions,
+  lastUsedOptions: defaultCompressionOptions
 }
 
 export const defaultSelections: LastSelections = {

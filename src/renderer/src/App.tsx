@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Cloud,
   Database,
+  FileImage,
   FolderOpen,
   FolderCog,
   GripVertical,
@@ -21,6 +22,7 @@ import {
   RotateCcw,
   Save,
   Settings,
+  SlidersHorizontal,
   Trash2,
   Upload,
   X
@@ -29,6 +31,12 @@ import type {
   AppConfig,
   AssetFile,
   BitableField,
+  CompressionFormat,
+  CompressionInspectResult,
+  CompressionOptions,
+  CompressionPreviewResult,
+  CompressionResizeMode,
+  CompressionRunResult,
   ImageItem,
   OverlayKind,
   OverlaySettings,
@@ -36,7 +44,7 @@ import type {
   SchemaSnapshot,
   UploadSelections
 } from '../../shared/types'
-import { defaultOverlays } from '../../shared/types'
+import { defaultCompressionOptions, defaultOverlays } from '../../shared/types'
 import poringEatSoundUrl from './assets/poring-eat.mp3'
 
 function loadFrames(glob: Record<string, string>): string[] {
@@ -108,6 +116,20 @@ type UpdateState = {
   percent: number
 }
 
+type ToolView = 'upload' | 'toolbox' | 'compression'
+
+type CompressionItem = CompressionInspectResult & {
+  id: string
+  options: CompressionOptions
+  touched: boolean
+  status: 'waiting' | 'previewing' | 'ready' | 'compressing' | 'completed' | 'failed'
+  preview?: CompressionPreviewResult
+  outputPath?: string
+  outputSize?: number
+  error?: string
+  warning?: string
+}
+
 const DEFAULT_ACCENT = '#fd7e8a'
 const PORING_FPS = 24
 const PORING_FRAME_MS = 1000 / PORING_FPS
@@ -124,7 +146,9 @@ function App(): JSX.Element {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [schema, setSchema] = useState<SchemaSnapshot>({ tables: [], fields: [] })
   const [collapsed, setCollapsed] = useState(true)
+  const [isCollapsing, setIsCollapsing] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [toolView, setToolView] = useState<ToolView>('upload')
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [detailItemId, setDetailItemId] = useState<string>('')
@@ -146,6 +170,9 @@ function App(): JSX.Element {
     slogan: [],
     icon: []
   })
+  const [compressionQueue, setCompressionQueue] = useState<CompressionItem[]>([])
+  const [selectedCompressionId, setSelectedCompressionId] = useState('')
+  const [compressionBusy, setCompressionBusy] = useState(false)
 
   useEffect(() => {
     window.assetUploader.getConfig().then((next) => {
@@ -166,6 +193,14 @@ function App(): JSX.Element {
       }
       setConfig(withDate)
       setCollapsed(next.window.collapsed)
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.assetUploader.onWindowState((state) => {
+      const nextCollapsed = state === 'collapsed'
+      setCollapsed(nextCollapsed)
+      if (nextCollapsed) setIsCollapsing(false)
     })
   }, [])
 
@@ -216,6 +251,10 @@ function App(): JSX.Element {
   const detailItem = useMemo(
     () => queue.find((item) => item.id === detailItemId),
     [queue, detailItemId]
+  )
+  const selectedCompressionItem = useMemo(
+    () => compressionQueue.find((item) => item.id === selectedCompressionId) || compressionQueue[0],
+    [compressionQueue, selectedCompressionId]
   )
   const activePoringFrames = useMemo(() => {
     if (poringMood === 'eating') return poringFrames.eat
@@ -362,6 +401,19 @@ function App(): JSX.Element {
     config && queue.length && queue.every((item) => isItemReady(item, config, schema.fields))
   )
   const canUpload = Boolean(config && pendingUploadItems.length && allItemsReady && !uploading)
+  const selectedCompressionOptionsKey = useMemo(
+    () => (selectedCompressionItem ? JSON.stringify(selectedCompressionItem.options) : ''),
+    [selectedCompressionItem?.id, selectedCompressionItem?.options]
+  )
+
+  useEffect(() => {
+    if (toolView !== 'compression' || !selectedCompressionItem) return
+    if (selectedCompressionItem.status === 'completed' || selectedCompressionItem.status === 'compressing') return
+    const timer = window.setTimeout(() => {
+      void previewCompressionItem(selectedCompressionItem)
+    }, 360)
+    return () => window.clearTimeout(timer)
+  }, [toolView, selectedCompressionItem?.id, selectedCompressionOptionsKey])
 
   async function loadAssetLists(nextConfig: AppConfig): Promise<void> {
     const [logo, slogan, icon] = await Promise.all([
@@ -372,9 +424,34 @@ function App(): JSX.Element {
     setAssetFiles({ logo, slogan, icon })
   }
 
-  async function expandPanel(): Promise<void> {
+  async function expandPanel(nextToolView: ToolView = 'upload'): Promise<void> {
+    setToolView(nextToolView)
     setCollapsed(false)
-    await window.assetUploader.expand()
+    await window.assetUploader.setWindowMode(nextToolView)
+  }
+
+  async function switchToolView(nextToolView: ToolView): Promise<void> {
+    setToolView(nextToolView)
+    await window.assetUploader.setWindowMode(nextToolView)
+  }
+
+  async function collapsePanel(): Promise<void> {
+    setSettingsOpen(false)
+    setVideoPanel(null)
+    setIsCollapsing(true)
+    await new Promise<void>((resolve) =>
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+    )
+    await new Promise((resolve) => window.setTimeout(resolve, 90))
+    await window.assetUploader.collapse({ deferReveal: true })
+    setCollapsed(true)
+    setToolView('upload')
+    setIsCollapsing(false)
+    await new Promise<void>((resolve) =>
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+    )
+    await new Promise((resolve) => window.setTimeout(resolve, 48))
+    await window.assetUploader.revealCollapsed()
   }
 
   function appendImages(items: ImageItem[]): void {
@@ -578,6 +655,7 @@ function App(): JSX.Element {
   }
 
   async function handlePoringPointerDown(event: React.PointerEvent<HTMLDivElement>): Promise<void> {
+    if (event.button !== 0) return
     event.preventDefault()
     const pointerId = event.pointerId
     const longPressTimer = window.setTimeout(() => {
@@ -648,6 +726,235 @@ function App(): JSX.Element {
 
   async function pickImages(): Promise<void> {
     appendImages(await window.assetUploader.pickImages())
+  }
+
+  async function openToolbox(): Promise<void> {
+    setSettingsOpen(false)
+    setVideoPanel(null)
+    await expandPanel('toolbox')
+  }
+
+  async function pickCompressionImages(): Promise<void> {
+    const items = await window.assetUploader.pickImages()
+    await addCompressionPaths(items.map((item) => item.path))
+  }
+
+  async function addCompressionPaths(paths: string[]): Promise<void> {
+    if (!config) return
+    const imagePaths = paths.filter(isImagePath)
+    if (!imagePaths.length) return
+    const options = config.compression.lastUsedOptions || config.compression.defaultOptions || defaultCompressionOptions
+    const additions: CompressionItem[] = []
+    for (const path of imagePaths) {
+      try {
+        const inspected = await window.assetUploader.inspectCompressionImage(path)
+        additions.push({
+          ...inspected,
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          options: { ...options },
+          touched: false,
+          status: 'waiting'
+        })
+      } catch {
+        // Ignore unsupported files in mixed drops.
+      }
+    }
+    if (!additions.length) return
+    setCompressionQueue((current) => [...current, ...additions])
+    setSelectedCompressionId((current) => current || additions[0].id)
+  }
+
+  function updateCompressionDefaults(patch: Partial<CompressionOptions>): void {
+    if (!config) return
+    const nextOptions = {
+      ...config.compression.lastUsedOptions,
+      ...patch
+    }
+    const nextConfig = {
+      ...config,
+      compression: {
+        ...config.compression,
+        lastUsedOptions: nextOptions,
+        defaultOptions: nextOptions
+      }
+    }
+    setConfig(nextConfig)
+    setCompressionQueue((current) =>
+      current.map((item) =>
+        item.touched
+          ? item
+          : {
+              ...item,
+              options: nextOptions,
+              status: item.status === 'completed' ? item.status : 'waiting',
+              preview: undefined,
+              error: '',
+              warning: ''
+            }
+      )
+    )
+    void window.assetUploader.saveConfig({ compression: nextConfig.compression })
+  }
+
+  function applyCompressionOptionsToUntouched(): void {
+    const sourceOptions =
+      selectedCompressionItem?.options ||
+      config?.compression.lastUsedOptions ||
+      config?.compression.defaultOptions ||
+      defaultCompressionOptions
+    setCompressionQueue((current) =>
+      current.map((item) =>
+        item.touched
+          ? item
+          : {
+              ...item,
+              options: { ...sourceOptions },
+              status: item.status === 'completed' ? 'waiting' : item.status,
+              outputPath: undefined,
+              outputSize: undefined,
+              error: '',
+              warning: item.warning || ''
+            }
+      )
+    )
+  }
+
+  function updateSelectedCompressionOptions(patch: Partial<CompressionOptions>): void {
+    if (!selectedCompressionItem) return
+    setCompressionQueue((current) =>
+      current.map((item) =>
+        item.id === selectedCompressionItem.id
+          ? {
+              ...item,
+              options: {
+                ...item.options,
+                ...patch
+              },
+              touched: true,
+              status: item.status === 'completed' ? item.status : 'waiting',
+              preview: undefined,
+              error: '',
+              warning: ''
+            }
+          : item
+      )
+    )
+  }
+
+  async function chooseCompressionOutputDir(): Promise<void> {
+    if (!config) return
+    const dir = await window.assetUploader.pickDirectory()
+    if (!dir) return
+    const nextConfig = {
+      ...config,
+      compression: {
+        ...config.compression,
+        outputDir: dir,
+        useCustomOutputDir: true
+      }
+    }
+    setConfig(nextConfig)
+    await window.assetUploader.saveConfig({ compression: nextConfig.compression })
+  }
+
+  async function setCompressionUseCustomOutputDir(useCustomOutputDir: boolean): Promise<void> {
+    if (!config) return
+    const nextConfig = {
+      ...config,
+      compression: {
+        ...config.compression,
+        useCustomOutputDir
+      }
+    }
+    setConfig(nextConfig)
+    await window.assetUploader.saveConfig({ compression: nextConfig.compression })
+  }
+
+  async function previewCompressionItem(itemToPreview: CompressionItem): Promise<void> {
+    const id = itemToPreview.id
+    setCompressionQueue((current) =>
+      current.map((item) => (item.id === id ? { ...item, status: 'previewing', error: '' } : item))
+    )
+    try {
+      const preview = await window.assetUploader.previewCompression({
+        path: itemToPreview.path,
+        options: itemToPreview.options
+      })
+      setCompressionQueue((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                preview,
+                status: 'ready',
+                warning: preview.warning || ''
+              }
+            : item
+        )
+      )
+    } catch (error) {
+      setCompressionQueue((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                status: 'failed',
+                error: error instanceof Error ? error.message : String(error)
+              }
+            : item
+        )
+      )
+    }
+  }
+
+  async function previewSelectedCompression(): Promise<void> {
+    if (!selectedCompressionItem) return
+    await previewCompressionItem(selectedCompressionItem)
+  }
+
+  async function runCompression(): Promise<void> {
+    if (!config || !compressionQueue.length || compressionBusy) return
+    if (config.compression.useCustomOutputDir && !config.compression.outputDir) {
+      alert('请先选择图片压缩的输出文件夹，或取消“指定输出文件夹”。')
+      return
+    }
+    setCompressionBusy(true)
+    const itemsToRun = compressionQueue.map((item) => ({
+      id: item.id,
+      path: item.path,
+      options: item.options
+    }))
+    const outputDir = config.compression.useCustomOutputDir ? config.compression.outputDir : ''
+    setCompressionQueue((current) =>
+      current.map((item) => ({
+        ...item,
+        status: 'waiting',
+        error: '',
+        warning: ''
+      }))
+    )
+    try {
+      for (const itemToRun of itemsToRun) {
+        setCompressionQueue((current) =>
+          current.map((item) => (item.id === itemToRun.id ? { ...item, status: 'compressing', error: '', warning: '' } : item))
+        )
+        const [result] = await window.assetUploader.runCompression({
+          outputDir,
+          items: [itemToRun]
+        })
+        setCompressionQueue((current) =>
+          current.map((item) => (item.id === itemToRun.id && result ? applyCompressionResult(item, result) : item))
+        )
+      }
+      await window.assetUploader.saveConfig({
+        compression: {
+          ...config.compression,
+          lastUsedOptions: config.compression.lastUsedOptions
+        }
+      })
+    } finally {
+      setCompressionBusy(false)
+    }
   }
 
   async function syncSchema(): Promise<void> {
@@ -758,6 +1065,18 @@ function App(): JSX.Element {
       fieldMapping: { ...config.fieldMapping, ...patch.fieldMapping },
       assetLibrary: { ...config.assetLibrary, ...patch.assetLibrary },
       workflow: { ...config.workflow, ...patch.workflow },
+      compression: {
+        ...config.compression,
+        ...patch.compression,
+        defaultOptions: {
+          ...config.compression.defaultOptions,
+          ...patch.compression?.defaultOptions
+        },
+        lastUsedOptions: {
+          ...config.compression.lastUsedOptions,
+          ...patch.compression?.lastUsedOptions
+        }
+      },
       overlays: {
         logo: { ...config.overlays.logo, ...patch.overlays?.logo },
         slogan: { ...config.overlays.slogan, ...patch.overlays?.slogan },
@@ -980,6 +1299,13 @@ function App(): JSX.Element {
           clearPoringDropTarget()
           void importDropPayload(event.dataTransfer)
         }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          window.clearTimeout(moveRef.current?.longPressTimer)
+          moveRef.current = null
+          setPoringMood('idle')
+          void openToolbox()
+        }}
         onPointerDown={(event) => void handlePoringPointerDown(event)}
         onPointerMove={handlePoringPointerMove}
         onPointerUp={handlePoringPointerUp}
@@ -993,10 +1319,16 @@ function App(): JSX.Element {
 
   return (
     <div
-      className={`shell ${videoPanel ? 'video-shell' : ''}`}
+      className={`shell ${videoPanel ? 'video-shell' : ''} ${toolView !== 'upload' ? 'tool-shell' : ''} ${
+        toolView === 'toolbox' ? 'toolbox-shell' : ''
+      } ${toolView === 'compression' ? 'compression-shell' : ''} ${isCollapsing ? 'is-minimizing' : ''}`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault()
+        if (toolView === 'compression') {
+          void addCompressionPaths(pathsFromDrop(event.dataTransfer.files))
+          return
+        }
         void importDropPayload(event.dataTransfer)
       }}
     >
@@ -1016,6 +1348,23 @@ function App(): JSX.Element {
             <div>
               <strong>设置</strong>
               <span>波利AI图助手</span>
+            </div>
+          </div>
+        ) : toolView !== 'upload' ? (
+          <div className={`tool-title ${toolView === 'compression' ? 'compression-title' : ''}`}>
+            {toolView === 'toolbox' && (
+            <button
+              className="icon-btn no-drag"
+              onClick={() => void switchToolView('upload')}
+              title="返回"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            )}
+            <strong>{toolView === 'compression' ? '图片压缩' : 'Poli Toolbox'}</strong>
+            <div>
+              <strong>{toolView === 'compression' ? '图片压缩' : '波利工具箱'}</strong>
+              <span>{toolView === 'compression' ? '批量压缩与单图微调' : '右键波利打开的工作流入口'}</span>
             </div>
           </div>
         ) : (
@@ -1041,10 +1390,7 @@ function App(): JSX.Element {
           )}
             <button
             className="icon-btn"
-            onClick={() => {
-              setCollapsed(true)
-              void window.assetUploader.collapse()
-            }}
+            onClick={() => void collapsePanel()}
             title="收起"
           >
             <Minimize2 size={16} />
@@ -1106,6 +1452,32 @@ function App(): JSX.Element {
           }
           onClearFrames={() => setVideoPanel((current) => (current ? { ...current, frames: [] } : current))}
           onExport={() => void exportVideoFrames()}
+        />
+      ) : toolView === 'toolbox' ? (
+        <ToolboxViewV2 onOpenCompression={() => void switchToolView('compression')} />
+      ) : toolView === 'compression' ? (
+        <CompressionWorkbenchReference
+          config={config}
+          items={compressionQueue}
+          selectedItem={selectedCompressionItem}
+          busy={compressionBusy}
+          onSelect={setSelectedCompressionId}
+          onPickImages={() => void pickCompressionImages()}
+          onChooseOutputDir={() => void chooseCompressionOutputDir()}
+          onUpdateDefaults={updateCompressionDefaults}
+          onUpdateSelected={updateSelectedCompressionOptions}
+          onApplyToUntouched={applyCompressionOptionsToUntouched}
+          onToggleUseCustomOutputDir={(checked) => void setCompressionUseCustomOutputDir(checked)}
+          onPreview={() => void previewSelectedCompression()}
+          onRun={() => void runCompression()}
+          onRemove={(id) => {
+            setCompressionQueue((current) => current.filter((item) => item.id !== id))
+            if (selectedCompressionId === id) setSelectedCompressionId('')
+          }}
+          onClear={() => {
+            setCompressionQueue([])
+            setSelectedCompressionId('')
+          }}
         />
       ) : (
         <>
@@ -1676,6 +2048,59 @@ function formatShortTime(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
+}
+
+function compressionSavings(original: number, next?: number): string {
+  if (!next || !original) return '待预览'
+  const ratio = Math.max(-999, Math.min(100, ((original - next) / original) * 100))
+  return `${ratio >= 0 ? '↓' : '↑'} ${Math.abs(ratio).toFixed(1)}%`
+}
+
+function applyCompressionResult(item: CompressionItem, result: CompressionRunResult): CompressionItem {
+  if (result.error) {
+    return {
+      ...item,
+      status: 'failed',
+      error: result.error
+    }
+  }
+  return {
+    ...item,
+    status: 'completed',
+    outputPath: result.outputPath,
+    outputSize: result.outputSize,
+    warning: result.warning || item.warning || ''
+  }
+}
+
+function compressionStatusText(item: CompressionItem): string {
+  if (item.status === 'completed') return '已输出'
+  if (item.status === 'failed') return '失败'
+  if (item.status === 'compressing') return '压缩中'
+  if (item.status === 'previewing') return '预览中'
+  if (item.touched) return '已微调'
+  return '继承默认'
+}
+
+function compressionItemProgress(status: CompressionItem['status']): number {
+  if (status === 'completed') return 100
+  if (status === 'failed') return 100
+  if (status === 'compressing') return 72
+  if (status === 'previewing') return 38
+  if (status === 'ready') return 18
+  return 0
+}
+
 const fieldAliases = {
   language: ['语言', '語言', 'Language'],
   size: ['尺寸', '素材尺寸', 'Size'],
@@ -1860,6 +2285,1206 @@ function MaskedSettingInput({
       onBlur={() => setFocused(false)}
       onChange={(event) => onChange(event.target.value)}
     />
+  )
+}
+
+function ToolboxViewV2({ onOpenCompression }: { onOpenCompression: () => void }): JSX.Element {
+  return (
+    <main className="toolbox-view-v2">
+      <div className="toolbox-inner-v2">
+        <h2>所有工具</h2>
+
+        <section className="toolbox-grid-v2">
+        <button className="toolbox-card-v2 toolbox-card-primary-v2" onClick={onOpenCompression} type="button">
+          <span className="toolbox-card-icon-v2">
+            <SlidersHorizontal size={22} />
+          </span>
+          <em>可用</em>
+          <strong>图片压缩</strong>
+          <small>Batch compression, single image fine-tuning, side-by-side preview.</small>
+          <span className="toolbox-card-action-v2">
+            打开工具
+            <span aria-hidden="true">→</span>
+          </span>
+        </button>
+
+        <div className="toolbox-card-v2 disabled">
+          <span className="toolbox-card-icon-v2">
+            <Trash2 size={22} />
+          </span>
+          <em>开发中</em>
+          <strong>背景移除</strong>
+          <small>Automatically separate subjects from backgrounds with high precision.</small>
+        </div>
+
+        <div className="toolbox-card-v2 disabled">
+          <span className="toolbox-card-icon-v2">
+            <Minimize2 size={22} />
+          </span>
+          <em>开发中</em>
+          <strong>AI 放大</strong>
+          <small>Enhance resolution and clarity of images using advanced AI models.</small>
+        </div>
+
+        <div className="toolbox-card-v2 disabled">
+          <span className="toolbox-card-icon-v2">
+            <RotateCcw size={22} />
+          </span>
+          <em>开发中</em>
+          <strong>开发中</strong>
+          <small>...</small>
+        </div>
+
+          <div className="toolbox-preview-v2">
+            <div className="toolbox-product-shot-v2" aria-label="波利AI图助手主界面预览">
+              <div className="shot-title-v2">
+                <span>FP</span>
+                <strong>ROC平面 🎨</strong>
+                <span>↻  ⚙  ↙</span>
+              </div>
+              <div className="shot-sidebar-v2">
+                <strong>☁ 上传队列</strong>
+                <small>暂无图片</small>
+              </div>
+              <div className="shot-canvas-v2">
+                <span>拖入图片后显示预览</span>
+              </div>
+              <div className="shot-panel-v2">
+                <strong>叠加图层</strong>
+                <small>选择图片后可设置 Logo / Slogan / Icon</small>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}
+
+function CompressionWorkbenchReference({
+  config,
+  items,
+  selectedItem,
+  busy,
+  onSelect,
+  onPickImages,
+  onChooseOutputDir,
+  onUpdateDefaults,
+  onUpdateSelected,
+  onApplyToUntouched,
+  onToggleUseCustomOutputDir,
+  onRun,
+  onRemove,
+  onClear
+}: {
+  config: AppConfig
+  items: CompressionItem[]
+  selectedItem?: CompressionItem
+  busy: boolean
+  onSelect: (id: string) => void
+  onPickImages: () => void
+  onChooseOutputDir: () => void
+  onUpdateDefaults: (patch: Partial<CompressionOptions>) => void
+  onUpdateSelected: (patch: Partial<CompressionOptions>) => void
+  onApplyToUntouched: () => void
+  onToggleUseCustomOutputDir: (checked: boolean) => void
+  onPreview: () => void
+  onRun: () => void
+  onRemove: (id: string) => void
+  onClear: () => void
+}): JSX.Element {
+  const [comparePosition, setComparePosition] = useState(50)
+  const [viewScale, setViewScale] = useState(1)
+  const defaultOptions = config.compression.lastUsedOptions || defaultCompressionOptions
+  const activeOptions = selectedItem?.options || defaultOptions
+  const completed = items.filter((item) => item.status === 'completed')
+  const failed = items.filter((item) => item.status === 'failed')
+  const finished = completed.length + failed.length
+  const originalTotal = items.reduce((sum, item) => sum + item.size, 0)
+  const selectedRatio = selectedItem?.preview?.size && selectedItem.size ? selectedItem.preview.size / selectedItem.size : 0
+  const outputTotal = items.reduce((sum, item) => {
+    if (item.outputSize) return sum + item.outputSize
+    if (item.preview?.size) return sum + item.preview.size
+    if (selectedRatio) return sum + Math.round(item.size * selectedRatio)
+    return sum
+  }, 0)
+  const saving = outputTotal ? compressionSavings(originalTotal, outputTotal) : '-'
+  const canRun = Boolean(items.length && !busy)
+  const totalProgress = items.length ? Math.round((finished / items.length) * 100) : 0
+  const imageViewStyle = { transform: `scale(${viewScale})`, transformOrigin: 'center center' }
+
+  function zoomBy(delta: number): void {
+    setViewScale((current) => Math.min(6, Math.max(0.1, Number((current + delta).toFixed(2)))))
+  }
+
+  function resetView(): void {
+    setComparePosition(50)
+    setViewScale(1)
+  }
+
+  function centerView(): void {
+    setComparePosition(50)
+  }
+
+  useEffect(() => {
+    setComparePosition(50)
+    setViewScale(1)
+  }, [selectedItem?.id])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      const combo = event.ctrlKey || event.metaKey
+      if (!combo) return
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault()
+        zoomBy(0.1)
+      } else if (event.key === '-') {
+        event.preventDefault()
+        zoomBy(-0.1)
+      } else if (event.key === '0') {
+        event.preventDefault()
+        resetView()
+      } else if (event.key === '1') {
+        event.preventDefault()
+        setViewScale(1)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  return (
+    <main className="compression-reference">
+      <aside className="compression-ref-queue">
+        <header>
+          <strong>压缩队列 ({items.length})</strong>
+          <button className="icon-btn" onClick={onPickImages} type="button" title="添加图片">
+            <ImagePlus size={16} />
+          </button>
+        </header>
+
+        <button className="compression-ref-drop" onClick={onPickImages} type="button">
+          <Upload size={26} />
+          <strong>拖入或选择图片</strong>
+          <small>Supports PNG, JPG, WebP</small>
+        </button>
+
+        <div className="compression-ref-list">
+          {items.length === 0 ? (
+            <div className="compression-empty-copy">把要压缩的图片拖进窗口，或点击上方区域选择文件。</div>
+          ) : (
+            items.map((item) => (
+              <div
+                className={`compression-ref-row ${selectedItem?.id === item.id ? 'active' : ''} ${
+                  item.status === 'compressing' ? 'is-compressing' : ''
+                }`}
+                key={item.id}
+                onClick={() => onSelect(item.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') onSelect(item.id)
+                }}
+              >
+                <img src={item.dataUrl} alt="" />
+                <span>
+                  <strong>{item.fileName}</strong>
+                  <small>
+                    {formatBytes(item.size)}
+                    {item.touched ? <b>已微调</b> : <b>继承默认</b>}
+                  </small>
+                </span>
+                <div className="compression-row-progress">
+                  <i style={{ width: `${compressionItemProgress(item.status)}%` }} />
+                </div>
+                <button
+                  className="queue-remove-btn"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onRemove(item.id)
+                  }}
+                  type="button"
+                  title="移除"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+
+      <section className="compression-ref-canvas">
+        {selectedItem && (
+          <div className="compression-ref-file-chip">
+            <strong>{selectedItem.fileName}</strong>
+            <span>
+              {selectedItem.width}x{selectedItem.height} · {selectedItem.format.toUpperCase()} · {formatBytes(selectedItem.size)}
+            </span>
+          </div>
+        )}
+
+        {selectedItem ? (
+          <div className="compression-ref-image">
+            {selectedItem.preview ? (
+              <>
+                <img className="compare-compressed-base-v2" src={selectedItem.preview.dataUrl} style={imageViewStyle} alt="" />
+                <div className="compare-original-pane-v2" style={{ clipPath: `inset(0 ${100 - comparePosition}% 0 0)` }}>
+                  <img src={selectedItem.dataUrl} style={imageViewStyle} alt="" />
+                </div>
+                <span className="compare-label-v2 compare-label-original-v2">原图</span>
+                <span className="compare-label-v2 compare-label-compressed-v2">压缩后</span>
+              </>
+            ) : (
+              <>
+                <img className="compare-original-base-v2" src={selectedItem.dataUrl} style={imageViewStyle} alt="" />
+                <div className="compare-loading-v2">
+                  <Loader2 className="spin" size={22} />
+                  正在生成压缩预览
+                </div>
+              </>
+            )}
+            <div className="compare-axis-v2" style={{ left: `${comparePosition}%` }}>
+              <span>
+                <ChevronDown size={16} />
+                <ChevronDown size={16} />
+              </span>
+            </div>
+            <input
+              className="compare-slider-v2"
+              type="range"
+              min="0"
+              max="100"
+              value={comparePosition}
+              onChange={(event) => setComparePosition(Number(event.target.value))}
+              aria-label="左右拖动查看压缩效果"
+            />
+            <div className="compression-ref-toolbar">
+              <button onClick={() => zoomBy(-0.1)} type="button" title="缩小 Ctrl+-">−</button>
+              <span>{Math.round(viewScale * 100)}%</span>
+              <button onClick={() => zoomBy(0.1)} type="button" title="放大 Ctrl++">+</button>
+              <button onClick={resetView} type="button" title="还原 Ctrl+0">↻</button>
+              <button onClick={centerView} type="button" title="居中分割线">○</button>
+              <button onClick={() => setViewScale(1)} type="button" title="适合画布 Ctrl+1">▦</button>
+            </div>
+            <div className="compression-ref-saving">
+              <strong>{selectedItem.preview ? compressionSavings(selectedItem.size, selectedItem.preview.size) : '↓ 0%'}</strong>
+              <span>{selectedItem.preview ? formatBytes(selectedItem.preview.size) : '-'}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="compression-ref-empty">
+            <FileImage size={34} />
+            <span>拖入图片后显示压缩预览</span>
+          </div>
+        )}
+      </section>
+
+      <aside className="compression-ref-settings">
+        <header>
+          <strong>压缩设置</strong>
+        </header>
+        <CompressionOptionsFormReference
+          options={activeOptions}
+          hasAlpha={Boolean(selectedItem?.hasAlpha)}
+          outputDir={config.compression.outputDir}
+          useCustomOutputDir={config.compression.useCustomOutputDir}
+          onChooseOutputDir={onChooseOutputDir}
+          onToggleUseCustomOutputDir={onToggleUseCustomOutputDir}
+          onChange={selectedItem ? onUpdateSelected : onUpdateDefaults}
+        />
+      </aside>
+
+      <footer className="compression-ref-footer">
+        <div className="compression-ref-stats">
+          <span>总数：{items.length}</span>
+          <span>已输出：{completed.length}</span>
+          <span>总原始：{formatBytes(originalTotal)}</span>
+          <span>→</span>
+          <strong>压缩后：{outputTotal ? formatBytes(outputTotal) : '计算中'}</strong>
+          <b>{saving}</b>
+          <span className="compression-total-progress" aria-label={`总进度 ${totalProgress}%`}>
+            <i style={{ width: `${totalProgress}%` }} />
+          </span>
+        </div>
+        <div className="compression-ref-actions">
+          <button className="secondary-btn" disabled={!selectedItem || !items.length} onClick={onApplyToUntouched} type="button">
+            应用到全部未微调图片
+          </button>
+          <button className="primary-btn" disabled={!canRun} onClick={onRun} type="button">
+            {busy ? <Loader2 className="spin" size={16} /> : <ArrowDownToLine size={16} />}
+            开始压缩
+          </button>
+        </div>
+      </footer>
+    </main>
+  )
+}
+
+function CompressionOptionsFormReference({
+  options,
+  hasAlpha,
+  outputDir,
+  useCustomOutputDir,
+  onChooseOutputDir,
+  onToggleUseCustomOutputDir,
+  onChange
+}: {
+  options: CompressionOptions
+  hasAlpha: boolean
+  outputDir: string
+  useCustomOutputDir: boolean
+  onChooseOutputDir: () => void
+  onToggleUseCustomOutputDir: (checked: boolean) => void
+  onChange: (patch: Partial<CompressionOptions>) => void
+}): JSX.Element {
+  return (
+    <div className="compression-ref-options">
+      <section>
+        <h3>基础参数</h3>
+        <label>
+          输出格式
+          <select value={options.format} onChange={(event) => onChange({ format: event.target.value as CompressionFormat })}>
+            <option value="original">保持原格式</option>
+            <option value="jpeg">JPG</option>
+            <option value="png">PNG</option>
+            <option value="webp">WebP（推荐）</option>
+            <option value="avif">AVIF</option>
+          </select>
+        </label>
+        {hasAlpha && options.format === 'jpeg' && <p className="compression-hint-v2">这张图有透明通道，转 JPG 会合成背景色。</p>}
+        <label>
+          <span className="form-line-v2">
+            压缩质量
+            <b>{options.quality}%</b>
+          </span>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            value={options.quality}
+            onChange={(event) => onChange({ quality: Number(event.target.value) })}
+          />
+        </label>
+        <label>
+          尺寸调整
+          <select value={options.resizeMode} onChange={(event) => onChange({ resizeMode: event.target.value as CompressionResizeMode })}>
+            <option value="none">保持原尺寸</option>
+            <option value="longEdge">限制最长边</option>
+            <option value="exact">限制宽高范围</option>
+          </select>
+        </label>
+        {options.resizeMode === 'longEdge' && (
+          <label>
+            最长边
+            <input type="number" min="16" value={options.longEdge} onChange={(event) => onChange({ longEdge: Number(event.target.value) })} />
+          </label>
+        )}
+        {options.resizeMode === 'exact' && (
+          <div className="compression-size-pair">
+            <label>
+              宽度
+              <input type="number" min="16" value={options.width} onChange={(event) => onChange({ width: Number(event.target.value) })} />
+            </label>
+            <label>
+              高度
+              <input type="number" min="16" value={options.height} onChange={(event) => onChange({ height: Number(event.target.value) })} />
+            </label>
+          </div>
+        )}
+        <label>
+          透明转 JPG 背景
+          <span className="color-field">
+            <input type="color" value={options.background} onChange={(event) => onChange({ background: event.target.value })} />
+            默认白色
+          </span>
+        </label>
+      </section>
+
+      <div className="compression-ref-output">
+        <label className="settings-check output-mode-check">
+          <input
+            type="checkbox"
+            checked={useCustomOutputDir}
+            onChange={(event) => onToggleUseCustomOutputDir(event.target.checked)}
+          />
+          <span>指定输出文件夹</span>
+        </label>
+        <label>
+          输出目录
+          <div className="settings-path-row">
+            <input readOnly value={useCustomOutputDir ? outputDir || '请选择输出文件夹' : '默认：每张源图片旁新建 output 文件夹'} />
+            <button className="icon-btn" disabled={!useCustomOutputDir} onClick={onChooseOutputDir} type="button" title="选择输出目录">
+              <FolderOpen size={15} />
+            </button>
+          </div>
+        </label>
+      </div>
+
+      <details className="advanced-options-v2">
+        <summary>进阶参数</summary>
+        <div className="advanced-grid-v2">
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.removeMetadata}
+              onChange={(event) => onChange({ removeMetadata: event.target.checked })}
+            />
+            <span>移除元数据</span>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.webpLossless}
+              onChange={(event) => onChange({ webpLossless: event.target.checked })}
+            />
+            <span>无损压缩</span>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.jpegProgressive}
+              onChange={(event) => onChange({ jpegProgressive: event.target.checked })}
+            />
+            <span>JPEG 渐进加载</span>
+          </label>
+          <label>
+            JPEG 色度采样
+            <select
+              value={options.jpegChromaSubsampling}
+              onChange={(event) => onChange({ jpegChromaSubsampling: event.target.value as CompressionOptions['jpegChromaSubsampling'] })}
+            >
+              <option value="4:2:0">4:2:0</option>
+              <option value="4:4:4">4:4:4</option>
+            </select>
+          </label>
+          <label>
+            PNG 压缩等级 {options.pngCompressionLevel}
+            <input
+              type="range"
+              min="0"
+              max="9"
+              value={options.pngCompressionLevel}
+              onChange={(event) => onChange({ pngCompressionLevel: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            编码强度 {options.encoderEffort}
+            <input
+              type="range"
+              min="0"
+              max="9"
+              value={options.encoderEffort}
+              onChange={(event) => onChange({ encoderEffort: Number(event.target.value) })}
+            />
+          </label>
+          <button className="restore-default-btn" onClick={() => onChange(defaultCompressionOptions)} type="button">
+            ↻ 恢复默认
+          </button>
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function CompressionWorkbenchV2({
+  config,
+  items,
+  selectedItem,
+  busy,
+  onSelect,
+  onPickImages,
+  onChooseOutputDir,
+  onUpdateDefaults,
+  onUpdateSelected,
+  onRun,
+  onRemove,
+  onClear
+}: {
+  config: AppConfig
+  items: CompressionItem[]
+  selectedItem?: CompressionItem
+  busy: boolean
+  onSelect: (id: string) => void
+  onPickImages: () => void
+  onChooseOutputDir: () => void
+  onUpdateDefaults: (patch: Partial<CompressionOptions>) => void
+  onUpdateSelected: (patch: Partial<CompressionOptions>) => void
+  onPreview: () => void
+  onRun: () => void
+  onRemove: (id: string) => void
+  onClear: () => void
+}): JSX.Element {
+  const [comparePosition, setComparePosition] = useState(50)
+  const defaultOptions = config.compression.lastUsedOptions || defaultCompressionOptions
+  const activeOptions = selectedItem?.options || defaultOptions
+  const completed = items.filter((item) => item.status === 'completed')
+  const originalTotal = items.reduce((sum, item) => sum + item.size, 0)
+  const outputTotal = items.reduce((sum, item) => sum + (item.outputSize || item.preview?.size || 0), 0)
+  const canRun = Boolean(items.length && !busy)
+
+  return (
+    <main className="compression-workbench-v2">
+      <aside className="compression-queue-v2">
+        <header>
+          <div>
+            <strong>压缩队列</strong>
+            <span>{items.length} 张图片</span>
+          </div>
+          {items.length > 0 && (
+            <button className="text-link-btn" onClick={onClear} type="button">
+              清空
+            </button>
+          )}
+        </header>
+
+        <button className="compression-drop-v2" onClick={onPickImages} type="button">
+          <ImagePlus size={24} />
+          <strong>拖入或选择图片</strong>
+          <small>PNG / JPG / WebP</small>
+        </button>
+
+        <div className="compression-list-v2">
+          {items.length === 0 ? (
+            <div className="compression-empty-copy">右键波利进入工具箱后，把要压缩的图片拖进这里。</div>
+          ) : (
+            items.map((item) => (
+              <div
+                className={`compression-row-v2 ${selectedItem?.id === item.id ? 'active' : ''}`}
+                key={item.id}
+                onClick={() => onSelect(item.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') onSelect(item.id)
+                }}
+              >
+                <img src={item.dataUrl} alt="" />
+                <span>
+                  <strong>{item.fileName}</strong>
+                  <small>{formatBytes(item.size)} · {compressionStatusText(item)}</small>
+                </span>
+                {item.touched && <b>已微调</b>}
+                <button
+                  className="queue-remove-btn"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onRemove(item.id)
+                  }}
+                  type="button"
+                  title="移除"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+
+      <section className="compression-preview-v2">
+        {selectedItem ? (
+          <>
+            <div className="compression-preview-title-v2">
+              <div>
+                <strong>{selectedItem.fileName}</strong>
+                <small>
+                  {selectedItem.width}x{selectedItem.height} · {selectedItem.format.toUpperCase()} · {formatBytes(selectedItem.size)}
+                </small>
+              </div>
+              <span className={`auto-preview-chip-v2 ${selectedItem.status === 'previewing' ? 'running' : ''}`}>
+                {selectedItem.status === 'previewing' ? <Loader2 className="spin" size={14} /> : <SlidersHorizontal size={14} />}
+                自动预览
+              </span>
+            </div>
+
+            <div className="compare-stage-v2">
+              <div className="compare-image-shell-v2">
+                <img className="compare-original-v2" src={selectedItem.dataUrl} alt="" />
+                {selectedItem.preview ? (
+                  <div className="compare-compressed-v2" style={{ clipPath: `inset(0 ${100 - comparePosition}% 0 0)` }}>
+                    <img src={selectedItem.preview.dataUrl} alt="" />
+                  </div>
+                ) : (
+                  <div className="compare-loading-v2">
+                    <Loader2 className="spin" size={22} />
+                    正在生成压缩预览
+                  </div>
+                )}
+                <div className="compare-axis-v2" style={{ left: `${comparePosition}%` }}>
+                  <span>
+                    <ChevronDown size={16} />
+                    <ChevronDown size={16} />
+                  </span>
+                </div>
+                <input
+                  className="compare-slider-v2"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={comparePosition}
+                  onChange={(event) => setComparePosition(Number(event.target.value))}
+                  aria-label="左右拖动查看压缩效果"
+                />
+                <div className="compare-pill-v2 original">
+                  <strong>Original</strong>
+                  <span>{formatBytes(selectedItem.size)}</span>
+                </div>
+                <div className="compare-pill-v2 compressed">
+                  <strong>{selectedItem.preview?.format?.toUpperCase() || activeOptions.format.toUpperCase()}</strong>
+                  <span>
+                    {selectedItem.preview
+                      ? `${formatBytes(selectedItem.preview.size)} · ${compressionSavings(selectedItem.size, selectedItem.preview.size)}`
+                      : '计算中'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {(selectedItem.warning || selectedItem.error) && (
+              <p className={`compression-message-v2 ${selectedItem.error ? 'bad' : ''}`}>
+                {selectedItem.error || selectedItem.warning}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="compression-empty-stage-v2">
+            <FileImage size={28} />
+            <strong>把图片加入队列后开始压缩</strong>
+            <span>这里会自动显示原图和压缩预览。</span>
+          </div>
+        )}
+      </section>
+
+      <aside className="compression-settings-v2">
+        <header>
+          <strong>Edit</strong>
+          <span>{selectedItem?.touched ? '单图已微调' : '默认参数'}</span>
+        </header>
+        <CompressionOptionsFormV2
+          options={activeOptions}
+          hasAlpha={Boolean(selectedItem?.hasAlpha)}
+          onChange={selectedItem ? onUpdateSelected : onUpdateDefaults}
+        />
+        <div className="compression-output-v2">
+          <label>
+            输出目录
+            <div className="settings-path-row">
+              <input readOnly value={config.compression.outputDir || '未设置，压缩前请选择'} />
+              <button className="icon-btn" onClick={onChooseOutputDir} type="button">
+                <FolderOpen size={15} />
+              </button>
+            </div>
+          </label>
+        </div>
+      </aside>
+
+      <footer className="compression-footer-v2">
+        <div className="footer-status">
+          <span className={`footer-status-icon ${canRun ? 'ready' : 'pending'}`}>
+            {canRun ? <CheckCircle2 size={18} /> : <ListChecks size={18} />}
+          </span>
+          <div>
+            <strong>
+              {items.length ? `${items.length} 张图片待压缩` : '等待添加图片'}
+              {completed.length ? `，${completed.length} 张已输出` : ''}
+            </strong>
+            <small>
+              {items.length
+                ? `原图 ${formatBytes(originalTotal)}，预计输出 ${outputTotal ? formatBytes(outputTotal) : '计算中'}`
+                : '拖入图片或点击左侧按钮添加到队列'}
+            </small>
+          </div>
+        </div>
+        <button className="primary-btn" disabled={!canRun} onClick={onRun} type="button">
+          {busy ? <Loader2 className="spin" size={16} /> : <ArrowDownToLine size={16} />}
+          开始压缩
+        </button>
+      </footer>
+    </main>
+  )
+}
+
+function CompressionOptionsFormV2({
+  options,
+  hasAlpha,
+  onChange
+}: {
+  options: CompressionOptions
+  hasAlpha: boolean
+  onChange: (patch: Partial<CompressionOptions>) => void
+}): JSX.Element {
+  return (
+    <div className="compression-options-v2">
+      <div className="compress-section-v2">
+        <h3>Compress</h3>
+        <label>
+          输出格式
+          <select value={options.format} onChange={(event) => onChange({ format: event.target.value as CompressionFormat })}>
+            <option value="original">保持原格式</option>
+            <option value="jpeg">JPG</option>
+            <option value="png">PNG</option>
+            <option value="webp">WebP</option>
+            <option value="avif">AVIF</option>
+          </select>
+        </label>
+        {hasAlpha && options.format === 'jpeg' && <p className="compression-hint-v2">这张图有透明通道，转 JPG 会合成背景色。</p>}
+        <label>
+          <span className="form-line-v2">
+            质量
+            <b>{options.quality}</b>
+          </span>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            value={options.quality}
+            onChange={(event) => onChange({ quality: Number(event.target.value) })}
+          />
+        </label>
+        <label>
+          尺寸
+          <select value={options.resizeMode} onChange={(event) => onChange({ resizeMode: event.target.value as CompressionResizeMode })}>
+            <option value="none">保持原尺寸</option>
+            <option value="longEdge">限制最长边</option>
+            <option value="exact">指定宽高内适配</option>
+          </select>
+        </label>
+        {options.resizeMode === 'longEdge' && (
+          <label>
+            最长边
+            <input type="number" min="16" value={options.longEdge} onChange={(event) => onChange({ longEdge: Number(event.target.value) })} />
+          </label>
+        )}
+        {options.resizeMode === 'exact' && (
+          <div className="compression-size-pair">
+            <label>
+              宽
+              <input type="number" min="16" value={options.width} onChange={(event) => onChange({ width: Number(event.target.value) })} />
+            </label>
+            <label>
+              高
+              <input type="number" min="16" value={options.height} onChange={(event) => onChange({ height: Number(event.target.value) })} />
+            </label>
+          </div>
+        )}
+        <label>
+          透明转 JPG 背景
+          <input type="color" value={options.background} onChange={(event) => onChange({ background: event.target.value })} />
+        </label>
+      </div>
+
+      <details className="advanced-options-v2" open>
+        <summary>进阶参数</summary>
+        <div className="advanced-grid-v2">
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.removeMetadata}
+              onChange={(event) => onChange({ removeMetadata: event.target.checked })}
+            />
+            <span>移除 EXIF / metadata</span>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.jpegProgressive}
+              onChange={(event) => onChange({ jpegProgressive: event.target.checked })}
+            />
+            <span>JPEG 渐进渲染</span>
+          </label>
+          <label>
+            JPEG 色度采样
+            <select
+              value={options.jpegChromaSubsampling}
+              onChange={(event) => onChange({ jpegChromaSubsampling: event.target.value as CompressionOptions['jpegChromaSubsampling'] })}
+            >
+              <option value="4:2:0">4:2:0 体积优先</option>
+              <option value="4:4:4">4:4:4 细节优先</option>
+            </select>
+          </label>
+          <label>
+            PNG 压缩等级 {options.pngCompressionLevel}
+            <input
+              type="range"
+              min="0"
+              max="9"
+              value={options.pngCompressionLevel}
+              onChange={(event) => onChange({ pngCompressionLevel: Number(event.target.value) })}
+            />
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.pngPalette}
+              onChange={(event) => onChange({ pngPalette: event.target.checked })}
+            />
+            <span>PNG 调色板压缩</span>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.webpLossless}
+              onChange={(event) => onChange({ webpLossless: event.target.checked })}
+            />
+            <span>WebP / AVIF 无损</span>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={options.webpNearLossless}
+              onChange={(event) => onChange({ webpNearLossless: event.target.checked })}
+            />
+            <span>WebP 近似无损</span>
+          </label>
+          <label>
+            WebP Alpha 质量 {options.webpAlphaQuality}
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={options.webpAlphaQuality}
+              onChange={(event) => onChange({ webpAlphaQuality: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            Encoder Effort {options.encoderEffort}
+            <input
+              type="range"
+              min="0"
+              max="9"
+              value={options.encoderEffort}
+              onChange={(event) => onChange({ encoderEffort: Number(event.target.value) })}
+            />
+          </label>
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function ToolboxView({ onOpenCompression }: { onOpenCompression: () => void }): JSX.Element {
+  return (
+    <main className="toolbox-view">
+      <section className="toolbox-hero">
+        <span className="toolbox-kicker">Poring Utility</span>
+        <h1>波利工具箱</h1>
+        <p>把临时的小工具集中在这里。左键波利仍然打开投放图上传，拖图到波利也不会改变。</p>
+      </section>
+      <section className="tool-card-grid">
+        <button className="tool-card available" onClick={onOpenCompression} type="button">
+          <span className="tool-card-icon">
+            <FileImage size={22} />
+          </span>
+          <strong>图片压缩</strong>
+          <small>多图批量压缩，支持单图参数微调和输出目录</small>
+          <em>可用</em>
+        </button>
+        <div className="tool-card disabled">
+          <span className="tool-card-icon">
+            <Film size={22} />
+          </span>
+          <strong>视频取帧</strong>
+          <small>已在投放图流程里可用，后续可独立成工具</small>
+          <em>后续整理</em>
+        </div>
+        <div className="tool-card disabled">
+          <span className="tool-card-icon">
+            <ListChecks size={22} />
+          </span>
+          <strong>批量命名</strong>
+          <small>预留入口，之后接发行设计的更多工作流</small>
+          <em>计划中</em>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function CompressionWorkbench({
+  config,
+  items,
+  selectedItem,
+  busy,
+  onSelect,
+  onPickImages,
+  onChooseOutputDir,
+  onUpdateDefaults,
+  onUpdateSelected,
+  onPreview,
+  onRun,
+  onRemove,
+  onClear
+}: {
+  config: AppConfig
+  items: CompressionItem[]
+  selectedItem?: CompressionItem
+  busy: boolean
+  onSelect: (id: string) => void
+  onPickImages: () => void
+  onChooseOutputDir: () => void
+  onUpdateDefaults: (patch: Partial<CompressionOptions>) => void
+  onUpdateSelected: (patch: Partial<CompressionOptions>) => void
+  onPreview: () => void
+  onRun: () => void
+  onRemove: (id: string) => void
+  onClear: () => void
+}): JSX.Element {
+  const [comparePosition, setComparePosition] = useState(50)
+  const defaultOptions = config.compression.lastUsedOptions || defaultCompressionOptions
+  const activeOptions = selectedItem?.options || defaultOptions
+  const completed = items.filter((item) => item.status === 'completed')
+  const originalTotal = items.reduce((sum, item) => sum + item.size, 0)
+  const outputTotal = items.reduce((sum, item) => sum + (item.outputSize || item.preview?.size || 0), 0)
+  const canRun = Boolean(items.length && !busy)
+
+  return (
+    <main className="compression-workbench">
+      <aside className="compression-queue">
+        <div className="section-title">
+          <FileImage size={16} />
+          <span>压缩队列</span>
+          {items.length > 0 && (
+            <button className="link-btn" onClick={onClear} type="button">
+              清空
+            </button>
+          )}
+        </div>
+        <button className="compression-drop" onClick={onPickImages} type="button">
+          <ImagePlus size={20} />
+          <strong>拖入或选择图片</strong>
+          <small>PNG / JPG / WebP</small>
+        </button>
+        {items.length === 0 ? (
+          <div className="empty">右键波利进入这里后，把要压缩的图片拖进窗口。</div>
+        ) : (
+          items.map((item) => (
+            <div
+              className={`compression-row ${selectedItem?.id === item.id ? 'active' : ''}`}
+              key={item.id}
+              onClick={() => onSelect(item.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') onSelect(item.id)
+              }}
+            >
+              <img src={item.dataUrl} alt="" />
+              <span>
+                <strong>{item.fileName}</strong>
+                <small>
+                  {formatBytes(item.size)} · {compressionStatusText(item)}
+                </small>
+              </span>
+              {item.touched && <b>微调</b>}
+              <button
+                className="queue-remove-btn"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onRemove(item.id)
+                }}
+                type="button"
+                title="移除"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ))
+        )}
+      </aside>
+
+      <section className="compression-preview">
+        {selectedItem ? (
+          <>
+            <div className="squoosh-stage-head">
+              <div>
+                <strong>{selectedItem.fileName}</strong>
+                <small>
+                  {selectedItem.width}×{selectedItem.height} · {selectedItem.format.toUpperCase()} ·{' '}
+                  {formatBytes(selectedItem.size)}
+                </small>
+              </div>
+              <span className={`auto-preview-chip ${selectedItem.status === 'previewing' ? 'running' : ''}`}>
+                {selectedItem.status === 'previewing' ? <Loader2 className="spin" size={14} /> : <SlidersHorizontal size={14} />}
+                自动预览
+              </span>
+            </div>
+            <div className="squoosh-compare">
+              <img className="compare-original" src={selectedItem.dataUrl} alt="" />
+              {selectedItem.preview ? (
+                <div className="compare-compressed" style={{ clipPath: `inset(0 ${100 - comparePosition}% 0 0)` }}>
+                  <img src={selectedItem.preview.dataUrl} alt="" />
+                </div>
+              ) : (
+                <div className="compare-loading">
+                  <Loader2 className="spin" size={22} />
+                  正在生成压缩预览
+                </div>
+              )}
+              <div className="compare-divider" style={{ left: `${comparePosition}%` }}>
+                <span>◀ ▶</span>
+              </div>
+              <input
+                className="compare-slider"
+                type="range"
+                min="0"
+                max="100"
+                value={comparePosition}
+                onChange={(event) => setComparePosition(Number(event.target.value))}
+                aria-label="对比位置"
+              />
+              <div className="squoosh-stat original">
+                <strong>Original</strong>
+                <span>{formatBytes(selectedItem.size)}</span>
+              </div>
+              <div className="squoosh-stat compressed">
+                <strong>{selectedItem.preview?.format?.toUpperCase() || activeOptions.format.toUpperCase()}</strong>
+                <span>
+                  {selectedItem.preview
+                    ? `${formatBytes(selectedItem.preview.size)} · ${compressionSavings(selectedItem.size, selectedItem.preview.size)}`
+                    : '计算中'}
+                </span>
+              </div>
+            </div>
+            {(selectedItem.warning || selectedItem.error) && (
+              <p className={`compression-message ${selectedItem.error ? 'bad' : ''}`}>
+                {selectedItem.error || selectedItem.warning}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="compression-empty-stage">
+            <FileImage size={28} />
+            <strong>把图片加入队列后开始压缩</strong>
+            <span>这里会显示原图和压缩预览。</span>
+          </div>
+        )}
+      </section>
+
+      <aside className="compression-settings">
+        <div className="compression-settings-head">
+          <span>Edit</span>
+          <small>{selectedItem?.touched ? '单图已微调' : '默认参数'}</small>
+        </div>
+        <div className="compress-panel-title">Compress</div>
+        <CompressionOptionsForm
+          options={activeOptions}
+          hasAlpha={Boolean(selectedItem?.hasAlpha)}
+          onChange={selectedItem ? onUpdateSelected : onUpdateDefaults}
+        />
+        <div className="compression-output">
+          <label>
+            输出目录
+            <div className="settings-path-row">
+              <input readOnly value={config.compression.outputDir || '未设置，压缩前请选择'} />
+              <button className="icon-btn" onClick={onChooseOutputDir} type="button">
+                <FolderOpen size={15} />
+              </button>
+            </div>
+          </label>
+        </div>
+      </aside>
+
+      <footer className="compression-footer">
+        <div className="footer-status">
+          <span className={`footer-status-icon ${canRun ? 'ready' : 'pending'}`}>
+            {canRun ? <CheckCircle2 size={18} /> : <ListChecks size={18} />}
+          </span>
+          <div>
+            <strong>
+              {items.length ? `${items.length} 张图片待压缩` : '等待添加图片'}
+              {completed.length ? `，${completed.length} 张已输出` : ''}
+            </strong>
+            <small>
+              {items.length
+                ? `原图 ${formatBytes(originalTotal)}，预估/输出 ${formatBytes(outputTotal)}`
+                : '拖入图片或点击左侧按钮添加到队列'}
+            </small>
+          </div>
+        </div>
+        <button className="primary-btn" disabled={!canRun} onClick={onRun} type="button">
+          {busy ? <Loader2 className="spin" size={16} /> : <ArrowDownToLine size={16} />}
+          开始压缩
+        </button>
+      </footer>
+    </main>
+  )
+}
+
+function CompressionOptionsForm({
+  options,
+  hasAlpha,
+  onChange
+}: {
+  options: CompressionOptions
+  hasAlpha: boolean
+  onChange: (patch: Partial<CompressionOptions>) => void
+}): JSX.Element {
+  return (
+    <div className="compression-options">
+      <label>
+        输出格式
+        <select value={options.format} onChange={(event) => onChange({ format: event.target.value as CompressionFormat })}>
+          <option value="original">保持原格式</option>
+          <option value="jpeg">JPG</option>
+          <option value="png">PNG</option>
+          <option value="webp">WebP</option>
+          <option value="avif">AVIF</option>
+        </select>
+      </label>
+      {hasAlpha && options.format === 'jpeg' && <p className="compression-hint">这张图有透明通道，转 JPG 会合成背景色。</p>}
+      <label>
+        质量 {options.quality}
+        <input
+          type="range"
+          min="1"
+          max="100"
+          value={options.quality}
+          onChange={(event) => onChange({ quality: Number(event.target.value) })}
+        />
+      </label>
+      <label>
+        尺寸
+        <select
+          value={options.resizeMode}
+          onChange={(event) => onChange({ resizeMode: event.target.value as CompressionResizeMode })}
+        >
+          <option value="none">保持原尺寸</option>
+          <option value="longEdge">限制最长边</option>
+          <option value="exact">指定宽高内适配</option>
+        </select>
+      </label>
+      {options.resizeMode === 'longEdge' && (
+        <label>
+          最长边
+          <input type="number" min="16" value={options.longEdge} onChange={(event) => onChange({ longEdge: Number(event.target.value) })} />
+        </label>
+      )}
+      {options.resizeMode === 'exact' && (
+        <div className="compression-size-pair">
+          <label>
+            宽
+            <input type="number" min="16" value={options.width} onChange={(event) => onChange({ width: Number(event.target.value) })} />
+          </label>
+          <label>
+            高
+            <input type="number" min="16" value={options.height} onChange={(event) => onChange({ height: Number(event.target.value) })} />
+          </label>
+        </div>
+      )}
+      <label>
+        透明转 JPG 背景
+        <input type="color" value={options.background} onChange={(event) => onChange({ background: event.target.value })} />
+      </label>
+      <label className="settings-check">
+        <input
+          type="checkbox"
+          checked={options.removeMetadata}
+          onChange={(event) => onChange({ removeMetadata: event.target.checked })}
+        />
+        <span>移除图片元数据</span>
+      </label>
+    </div>
   )
 }
 

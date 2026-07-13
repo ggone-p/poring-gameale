@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type {
   AppConfig,
   AssetLibrary,
+  CompressionInspectResult,
+  CompressionPreviewRequest,
+  CompressionPreviewResult,
+  CompressionRunRequest,
+  CompressionRunResult,
   ImageItem,
   OverlayState,
   SchemaSnapshot,
@@ -23,6 +28,12 @@ const api = {
   listAssets: (dir: string): Promise<Array<{ path: string; name: string }>> => ipcRenderer.invoke('files:list-assets', dir),
   syncSchema: (tableId?: string): Promise<SchemaSnapshot> => ipcRenderer.invoke('feishu:sync-schema', tableId),
   uploadOne: (request: UploadRequest): Promise<UploadResult> => ipcRenderer.invoke('upload:one', request),
+  inspectCompressionImage: (path: string): Promise<CompressionInspectResult> =>
+    ipcRenderer.invoke('compression:inspect', path),
+  previewCompression: (request: CompressionPreviewRequest): Promise<CompressionPreviewResult> =>
+    ipcRenderer.invoke('compression:preview', request),
+  runCompression: (request: CompressionRunRequest): Promise<CompressionRunResult[]> =>
+    ipcRenderer.invoke('compression:run', request),
   getUpdateState: (): Promise<{ phase: string; status: string; percent: number }> => ipcRenderer.invoke('updates:state'),
   checkForUpdates: (): Promise<string> => ipcRenderer.invoke('updates:check'),
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
@@ -37,8 +48,16 @@ const api = {
     ipcRenderer.on('files:browser-imported', listener)
     return () => ipcRenderer.removeListener('files:browser-imported', listener)
   },
-  collapse: (): Promise<void> => ipcRenderer.invoke('window:collapse'),
+  onWindowState: (callback: (state: 'collapsed' | 'expanded') => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, state: 'collapsed' | 'expanded'): void => callback(state)
+    ipcRenderer.on('window:state', listener)
+    return () => ipcRenderer.removeListener('window:state', listener)
+  },
+  prepareCollapse: (): Promise<{ deltaX: number; deltaY: number }> => ipcRenderer.invoke('window:prepare-collapse'),
+  collapse: (options?: { deferReveal?: boolean }): Promise<void> => ipcRenderer.invoke('window:collapse', options),
+  revealCollapsed: (): Promise<void> => ipcRenderer.invoke('window:reveal-collapsed'),
   expand: (): Promise<void> => ipcRenderer.invoke('window:expand'),
+  setWindowMode: (mode: 'upload' | 'toolbox' | 'compression'): Promise<void> => ipcRenderer.invoke('window:set-mode', mode),
   getWindowPosition: (): Promise<{ x: number; y: number }> => ipcRenderer.invoke('window:get-position'),
   setWindowPosition: (x: number, y: number): Promise<void> => ipcRenderer.invoke('window:set-position', x, y),
   setAlwaysOnTop: (value: boolean): Promise<void> => ipcRenderer.invoke('window:always-on-top', value),
