@@ -22,8 +22,16 @@ document.addEventListener('dragend', () => {
 })
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== 'BOLI_GET_CONTEXT_IMAGE') return false
-  sendResponse({ payload: contextImagePayload })
+  if (message?.type === 'BOLI_GET_CONTEXT_IMAGE') {
+    resolvePayloadForTransfer(contextImagePayload)
+      .then((payload) => sendResponse({ payload }))
+      .catch(() => sendResponse({ payload: contextImagePayload }))
+    return true
+  }
+  if (message?.type === 'BOLI_SHOW_TOAST') {
+    showToast(message.message || '操作完成')
+    return false
+  }
   return false
 })
 
@@ -78,6 +86,18 @@ function payloadFromCanvas(canvas) {
     }
   } catch {
     return null
+  }
+}
+
+async function resolvePayloadForTransfer(payload) {
+  if (!payload?.url || payload.dataUrl) return payload
+  if (!/^(blob:|data:image\/)/i.test(payload.url)) return payload
+  const response = await fetch(payload.url)
+  if (!response.ok) throw new Error(`图片读取失败：${response.status}`)
+  const blob = await response.blob()
+  return {
+    dataUrl: await blobToDataUrl(blob),
+    fileName: payload.fileName
   }
 }
 
@@ -142,7 +162,7 @@ async function sendImportPayload(payload) {
       // Fall back to URL payload.
     }
   }
-  chrome.runtime.sendMessage({ type: 'BOLI_IMPORT_IMAGE', ...payload }, (response) => {
+  chrome.runtime.sendMessage({ type: 'BOLI_IMPORT_IMAGE', target: 'upload', ...payload }, (response) => {
     if (response?.ok) showToast('已加入波利AI图助手')
     else showToast(response?.error || '导入失败，请确认波利AI图助手已启动')
   })

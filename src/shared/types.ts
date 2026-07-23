@@ -1,5 +1,12 @@
 export type OverlayKind = 'logo' | 'slogan' | 'icon'
 
+export type BrowserImportTarget = 'upload' | 'background-removal'
+
+export interface BrowserImportDelivery {
+  items: ImageItem[]
+  target: BrowserImportTarget
+}
+
 export type QueueStatus =
   | 'waiting'
   | 'creating-record'
@@ -122,6 +129,33 @@ export interface CompressionRunResult {
   error?: string
 }
 
+export interface BackgroundRemovalRuntimeStatus {
+  ready: boolean
+  installing: boolean
+  modelDownloaded: boolean
+  message: string
+  installDir: string
+  modelDir: string
+  version?: string
+}
+
+export interface BackgroundRemovalProgress {
+  phase: 'idle' | 'downloading' | 'installing' | 'verifying' | 'loading' | 'processing' | 'saving' | 'complete' | 'error'
+  status: string
+  percent: number
+  determinate: boolean
+  speedBytesPerSecond?: number
+}
+
+export interface BackgroundRemovalResult {
+  outputPath: string
+  dataUrl: string
+  width: number
+  height: number
+  size: number
+  elapsedMs: number
+}
+
 export interface OverlaySettings {
   enabled: boolean
   assetPath: string
@@ -154,6 +188,9 @@ export interface AppConfig {
   assetLibrary: AssetLibrary
   workflow: WorkflowPreferences
   compression: CompressionPreferences
+  backgroundRemoval: {
+    installDir: string
+  }
   overlays: OverlayState
   selections: LastSelections
   window: {

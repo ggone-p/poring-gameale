@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "波利AI图助手",
-  "version": "0.1.1",
+  "version": "0.1.4",
   "description": "右键或拖拽网页图片到波利AI图助手。",
   "permissions": ["contextMenus", "notifications"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:17367/*"],

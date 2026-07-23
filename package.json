@@ -1,6 +1,6 @@
 {
   "name": "feishu-asset-floating-uploader",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "A floating Windows desktop uploader for Feishu Bitable creative assets.",
   "author": "方攀",
   "productName": "波利AI图助手",
@@ -31,6 +31,10 @@
       {
         "from": "src/main/assets/tray-icon.png",
         "to": "tray-icon.png"
+      },
+      {
+        "from": "scripts/birefnet_demo.py",
+        "to": "birefnet-runtime/birefnet_demo.py"
       }
     ],
     "asarUnpack": [
@@ -83,9 +87,12 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.21",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "vite": "^5.4.11"
   }

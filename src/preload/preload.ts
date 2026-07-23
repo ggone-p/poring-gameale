@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type {
   AppConfig,
   AssetLibrary,
+  BackgroundRemovalProgress,
+  BackgroundRemovalResult,
+  BackgroundRemovalRuntimeStatus,
+  BrowserImportDelivery,
   CompressionInspectResult,
   CompressionPreviewRequest,
   CompressionPreviewResult,
@@ -34,6 +38,24 @@ const api = {
     ipcRenderer.invoke('compression:preview', request),
   runCompression: (request: CompressionRunRequest): Promise<CompressionRunResult[]> =>
     ipcRenderer.invoke('compression:run', request),
+  getBackgroundRemovalStatus: (): Promise<BackgroundRemovalRuntimeStatus> =>
+    ipcRenderer.invoke('background-removal:status'),
+  pickBackgroundRemovalInstallDirectory: (): Promise<string> =>
+    ipcRenderer.invoke('background-removal:pick-install-directory'),
+  installBackgroundRemovalRuntime: (installDir?: string): Promise<BackgroundRemovalRuntimeStatus> =>
+    ipcRenderer.invoke('background-removal:install-runtime', installDir),
+  runBackgroundRemoval: (path: string): Promise<BackgroundRemovalResult> =>
+    ipcRenderer.invoke('background-removal:run', path),
+  copyBackgroundRemovalResult: (path: string, dataUrl?: string): Promise<void> =>
+    ipcRenderer.invoke('background-removal:copy-result', path, dataUrl),
+  saveBackgroundRemovalEdit: (path: string, dataUrl: string): Promise<void> =>
+    ipcRenderer.invoke('background-removal:save-edit', path, dataUrl),
+  onBackgroundRemovalStatus: (callback: (progress: BackgroundRemovalProgress) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, progress: BackgroundRemovalProgress): void => callback(progress)
+    ipcRenderer.on('background-removal:progress', listener)
+    return () => ipcRenderer.removeListener('background-removal:progress', listener)
+  },
+  showItemInFolder: (path: string): Promise<void> => ipcRenderer.invoke('shell:show-item-in-folder', path),
   getUpdateState: (): Promise<{ phase: string; status: string; percent: number }> => ipcRenderer.invoke('updates:state'),
   checkForUpdates: (): Promise<string> => ipcRenderer.invoke('updates:check'),
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updates:install'),
@@ -43,8 +65,8 @@ const api = {
     ipcRenderer.on('updates:status', listener)
     return () => ipcRenderer.removeListener('updates:status', listener)
   },
-  onBrowserImport: (callback: (items: ImageItem[]) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, items: ImageItem[]): void => callback(items)
+  onBrowserImport: (callback: (delivery: BrowserImportDelivery) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, delivery: BrowserImportDelivery): void => callback(delivery)
     ipcRenderer.on('files:browser-imported', listener)
     return () => ipcRenderer.removeListener('files:browser-imported', listener)
   },
@@ -57,7 +79,8 @@ const api = {
   collapse: (options?: { deferReveal?: boolean }): Promise<void> => ipcRenderer.invoke('window:collapse', options),
   revealCollapsed: (): Promise<void> => ipcRenderer.invoke('window:reveal-collapsed'),
   expand: (): Promise<void> => ipcRenderer.invoke('window:expand'),
-  setWindowMode: (mode: 'upload' | 'toolbox' | 'compression'): Promise<void> => ipcRenderer.invoke('window:set-mode', mode),
+  setWindowMode: (mode: 'upload' | 'toolbox' | 'compression' | 'background-removal'): Promise<void> =>
+    ipcRenderer.invoke('window:set-mode', mode),
   getWindowPosition: (): Promise<{ x: number; y: number }> => ipcRenderer.invoke('window:get-position'),
   setWindowPosition: (x: number, y: number): Promise<void> => ipcRenderer.invoke('window:set-position', x, y),
   setAlwaysOnTop: (value: boolean): Promise<void> => ipcRenderer.invoke('window:always-on-top', value),

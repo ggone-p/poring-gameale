@@ -1,10 +1,18 @@
 # Dependencies
 node_modules/
+.birefnet-demo/
+.birefnet-cache/
+.tmp_viitor_voice_nar/
 
 # Build output
 out/
 dist/
 release/
+poring-ai-mac-build-source-*.zip
+poring-ai-mac-build-source-*.tar.gz
+
+# Internal handoff notes may contain local credentials.
+docs/波利AI图助手-新对话交接.md
 
 # Logs
 *.log

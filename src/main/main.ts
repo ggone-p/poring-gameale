@@ -1,14 +1,20 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import sharp from 'sharp'
 import type {
   AppConfig,
   AssetFile,
+  BackgroundRemovalProgress,
+  BackgroundRemovalResult,
+  BackgroundRemovalRuntimeStatus,
   BitableField,
+  BrowserImportTarget,
   CompressionOptions,
   CompressionPreviewRequest,
   CompressionPreviewResult,
@@ -48,6 +54,8 @@ const TOOLBOX_WIDTH = 900
 const TOOLBOX_HEIGHT = 600
 const COMPRESSION_WIDTH = 1280
 const COMPRESSION_HEIGHT = 1024
+const BACKGROUND_REMOVAL_WIDTH = 1280
+const BACKGROUND_REMOVAL_HEIGHT = 1024
 const COLLAPSED_WIDTH = 118
 const COLLAPSED_HEIGHT = 118
 const SOFTWARE_DESIGNER = '方攀'
@@ -62,6 +70,7 @@ let updateStatus = '尚未检查更新'
 let fallbackInstallerPath = ''
 let lastCollapsedPosition: { x: number; y: number } | null = null
 let suppressMoveSave = false
+let backgroundRemovalInstalling = false
 
 let updateState = {
   phase: 'idle',
@@ -108,6 +117,9 @@ function defaultConfig(): AppConfig {
     },
     workflow: defaultWorkflow,
     compression: defaultCompression,
+    backgroundRemoval: {
+      installDir: ''
+    },
     overlays: defaultOverlays,
     selections: {
       ...defaultSelections,
@@ -131,6 +143,7 @@ function readConfig(): AppConfig {
       fieldMapping: { ...fallback.fieldMapping, ...parsed.fieldMapping },
       assetLibrary: { ...fallback.assetLibrary, ...parsed.assetLibrary },
       workflow: { ...fallback.workflow, ...parsed.workflow },
+      backgroundRemoval: { ...fallback.backgroundRemoval, ...parsed.backgroundRemoval },
       compression: {
         ...fallback.compression,
         ...parsed.compression,
@@ -200,6 +213,7 @@ function saveConfig(patch: Partial<AppConfig>): AppConfig {
     fieldMapping: { ...current.fieldMapping, ...patch.fieldMapping },
     assetLibrary: { ...current.assetLibrary, ...patch.assetLibrary },
     workflow: { ...current.workflow, ...patch.workflow },
+    backgroundRemoval: { ...current.backgroundRemoval, ...patch.backgroundRemoval },
     compression: {
       ...current.compression,
       ...patch.compression,
@@ -339,10 +353,11 @@ async function importBrowserImage(payload: { url?: string; dataUrl?: string; fil
   return imageToItem(filePath)
 }
 
-function deliverImportedImages(items: ImageItem[]): void {
+function deliverImportedImages(items: ImageItem[], target: BrowserImportTarget = 'upload'): void {
   if (!items.length || !mainWindow) return
-  expandWindow()
-  mainWindow.webContents.send('files:browser-imported', items)
+  if (target === 'background-removal') setWindowMode('background-removal')
+  else expandWindow()
+  mainWindow.webContents.send('files:browser-imported', { items, target })
 }
 
 function startMediaServer(): Promise<void> {
@@ -369,13 +384,15 @@ function startMediaServer(): Promise<void> {
           url?: string
           dataUrl?: string
           fileName?: string
+          target?: BrowserImportTarget
           images?: Array<{ url?: string; dataUrl?: string; fileName?: string }>
         }
+        const target: BrowserImportTarget = json.target === 'background-removal' ? 'background-removal' : 'upload'
         const payloads = Array.isArray(json.images) ? json.images : [json]
         const items: ImageItem[] = []
         for (const payload of payloads) items.push(await importBrowserImage(payload))
-        deliverImportedImages(items)
-        writeJsonResponse(response, 200, { ok: true, count: items.length })
+        deliverImportedImages(items, target)
+        writeJsonResponse(response, 200, { ok: true, count: items.length, target })
       } catch (error) {
         writeJsonResponse(response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
       }
@@ -580,7 +597,7 @@ function resizeExpandedWindow(width: number, height: number, animate = true): vo
   setWindowBoundsSafely({ x: nextX, y: nextY, width: nextWidth, height: nextHeight }, animate)
 }
 
-function setWindowMode(mode: 'upload' | 'toolbox' | 'compression'): void {
+function setWindowMode(mode: 'upload' | 'toolbox' | 'compression' | 'background-removal'): void {
   if (!mainWindow) return
   const config = readConfig()
   const wasCollapsed = config.window.collapsed
@@ -591,6 +608,8 @@ function setWindowMode(mode: 'upload' | 'toolbox' | 'compression'): void {
   }
   if (mode === 'compression') {
     resizeExpandedWindow(COMPRESSION_WIDTH, COMPRESSION_HEIGHT, !wasCollapsed)
+  } else if (mode === 'background-removal') {
+    resizeExpandedWindow(BACKGROUND_REMOVAL_WIDTH, BACKGROUND_REMOVAL_HEIGHT, !wasCollapsed)
   } else if (mode === 'toolbox') {
     resizeExpandedWindow(TOOLBOX_WIDTH, TOOLBOX_HEIGHT, !wasCollapsed)
   } else {
@@ -1207,6 +1226,329 @@ async function runCompression(request: CompressionRunRequest): Promise<Compressi
   return results
 }
 
+function backgroundRemovalPaths(): {
+  installDir: string
+  pythonPath: string
+  scriptPath: string
+  cacheDir: string
+  manifestPath: string
+} {
+  const projectRoot = app.getAppPath()
+  const configuredDir = readConfig().backgroundRemoval.installDir
+  const installDir = configuredDir || (app.isPackaged
+    ? join(app.getPath('userData'), 'ai-background-removal')
+    : join(projectRoot, '.birefnet-demo'))
+  return {
+    installDir,
+    pythonPath: join(installDir, '.venv', 'Scripts', 'python.exe'),
+    scriptPath: app.isPackaged || Boolean(configuredDir)
+      ? join(installDir, 'birefnet_demo.py')
+      : join(projectRoot, 'scripts', 'birefnet_demo.py'),
+    cacheDir: join(installDir, 'models'),
+    manifestPath: join(installDir, 'runtime.json')
+  }
+}
+
+function backgroundRemovalRuntimeStatus(): BackgroundRemovalRuntimeStatus {
+  const paths = backgroundRemovalPaths()
+  const ready = existsSync(paths.pythonPath) && existsSync(paths.scriptPath)
+  const snapshotsDir = join(paths.cacheDir, 'models--ZhengPeng7--BiRefNet_dynamic', 'snapshots')
+  const modelDownloaded = existsSync(snapshotsDir) && readdirSync(snapshotsDir).length > 0
+  return {
+    ready,
+    installing: backgroundRemovalInstalling,
+    modelDownloaded,
+    installDir: paths.installDir,
+    modelDir: paths.cacheDir,
+    message: ready
+      ? modelDownloaded
+        ? 'BiRefNet 模型已就绪'
+        : '运行环境已就绪，首次抠图将下载约 444 MB 模型'
+      : '尚未安装本地 BiRefNet demo 运行环境'
+  }
+}
+
+function publishBackgroundRemovalProgress(progress: BackgroundRemovalProgress): void {
+  mainWindow?.webContents.send('background-removal:progress', progress)
+}
+
+async function downloadRuntimeFile(url: string, targetPath: string): Promise<void> {
+  const response = await fetch(url, { redirect: 'follow' })
+  if (!response.ok || !response.body) throw new Error(`下载失败：HTTP ${response.status}`)
+  const total = Number(response.headers.get('content-length') || 0)
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  const started = Date.now()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    chunks.push(value)
+    received += value.byteLength
+    const seconds = Math.max(0.1, (Date.now() - started) / 1000)
+    publishBackgroundRemovalProgress({
+      phase: 'downloading',
+      status: `正在下载安装工具${total ? ` ${Math.round(received * 100 / total)}%` : ''}`,
+      percent: total ? Math.min(15, Math.round(received * 15 / total)) : 5,
+      determinate: total > 0,
+      speedBytesPerSecond: Math.round(received / seconds)
+    })
+  }
+  writeFileSync(targetPath, Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
+}
+
+async function runRuntimeCommand(
+  command: string,
+  args: string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv; onLine?: (line: string) => void }
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      windowsHide: true,
+      env: { ...process.env, ...options.env, PYTHONUTF8: '1' }
+    })
+    let output = ''
+    let errorOutput = ''
+    const consume = (chunk: Buffer, isError = false): void => {
+      const text = chunk.toString('utf8')
+      if (isError) errorOutput += text
+      output += text
+      const lines = output.split(/\r?\n/)
+      output = lines.pop() || ''
+      lines.forEach((line) => options.onLine?.(line))
+    }
+    child.stdout.on('data', (chunk: Buffer) => consume(chunk))
+    child.stderr.on('data', (chunk: Buffer) => consume(chunk, true))
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (output.trim()) options.onLine?.(output.trim())
+      if (code === 0) resolve()
+      else reject(new Error(errorOutput.trim() || `安装命令失败（退出码 ${code ?? 'unknown'}）`))
+    })
+  })
+}
+
+async function hasNvidiaGpu(): Promise<boolean> {
+  try {
+    await runRuntimeCommand('nvidia-smi.exe', ['--query-gpu=name', '--format=csv,noheader'], {
+      cwd: app.getPath('temp')
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<BackgroundRemovalRuntimeStatus> {
+  if (backgroundRemovalInstalling) throw new Error('本地 AI 环境正在安装，请勿重复启动。')
+  backgroundRemovalInstalling = true
+  try {
+    if (requestedDir) saveConfig({ backgroundRemoval: { installDir: requestedDir } })
+    const paths = backgroundRemovalPaths()
+    mkdirSync(paths.installDir, { recursive: true })
+    mkdirSync(paths.cacheDir, { recursive: true })
+    const toolsDir = join(paths.installDir, 'tools')
+    mkdirSync(toolsDir, { recursive: true })
+    const uvPath = join(toolsDir, 'uv.exe')
+    const runtimeEnv = {
+      UV_CACHE_DIR: join(paths.installDir, '.uv-cache'),
+      UV_PYTHON_INSTALL_DIR: join(paths.installDir, 'python'),
+      UV_PYTHON_PREFERENCE: 'only-managed'
+    }
+
+    if (!existsSync(uvPath)) {
+      const archivePath = join(paths.installDir, 'uv-windows.zip')
+      const uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip'
+      publishBackgroundRemovalProgress({ phase: 'downloading', status: '正在下载 Python 环境安装工具', percent: 1, determinate: false })
+      await downloadRuntimeFile(uvUrl, archivePath)
+      const checksumResponse = await fetch(`${uvUrl}.sha256`, { redirect: 'follow' })
+      if (!checksumResponse.ok) throw new Error('无法获取安装工具校验文件。')
+      const expectedHash = (await checksumResponse.text()).trim().split(/\s+/)[0]?.toLowerCase()
+      const actualHash = createHash('sha256').update(readFileSync(archivePath)).digest('hex')
+      if (!expectedHash || actualHash !== expectedHash) throw new Error('安装工具校验失败，请重试。')
+      publishBackgroundRemovalProgress({ phase: 'verifying', status: '安装工具校验完成，正在解压', percent: 16, determinate: true })
+      await runRuntimeCommand('tar.exe', ['-xf', archivePath, '-C', toolsDir], { cwd: paths.installDir })
+      rmSync(archivePath, { force: true })
+    }
+
+    publishBackgroundRemovalProgress({ phase: 'installing', status: '正在准备独立 Python 3.11 环境', percent: 20, determinate: true })
+    await runRuntimeCommand(uvPath, ['venv', join(paths.installDir, '.venv'), '--python', '3.11'], {
+      cwd: paths.installDir,
+      env: runtimeEnv
+    })
+
+    const gpuAvailable = await hasNvidiaGpu()
+    publishBackgroundRemovalProgress({
+      phase: 'installing',
+      status: `正在安装 PyTorch（${gpuAvailable ? 'NVIDIA GPU' : 'CPU'} 版本）`,
+      percent: 35,
+      determinate: true
+    })
+    const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', gpuAvailable
+      ? 'https://download.pytorch.org/whl/cu128'
+      : 'https://download.pytorch.org/whl/cpu']
+    await runRuntimeCommand(uvPath, torchArgs, { cwd: paths.installDir, env: runtimeEnv })
+
+    publishBackgroundRemovalProgress({ phase: 'installing', status: '正在安装 BiRefNet 推理依赖', percent: 62, determinate: true })
+    await runRuntimeCommand(
+      uvPath,
+      ['pip', 'install', '--python', paths.pythonPath, 'transformers>=4.46,<5', 'pillow', 'safetensors', 'huggingface-hub', 'timm', 'kornia', 'einops', 'tqdm'],
+      { cwd: paths.installDir, env: runtimeEnv }
+    )
+
+    const bundledScript = app.isPackaged
+      ? join(process.resourcesPath, 'birefnet-runtime', 'birefnet_demo.py')
+      : join(app.getAppPath(), 'scripts', 'birefnet_demo.py')
+    if (!existsSync(bundledScript)) throw new Error('软件缺少 BiRefNet 推理脚本，请重新安装波利助手。')
+    if (bundledScript !== paths.scriptPath) copyFileSync(bundledScript, paths.scriptPath)
+
+    publishBackgroundRemovalProgress({ phase: 'downloading', status: '正在下载 BiRefNet 开源模型', percent: 72, determinate: false })
+    await runRuntimeCommand(paths.pythonPath, [paths.scriptPath, '--prepare-only', '--cache-dir', paths.cacheDir], {
+      cwd: paths.installDir,
+      env: runtimeEnv,
+      onLine: (line) => {
+        try {
+          const payload = JSON.parse(line) as Record<string, unknown>
+          if (payload.event !== 'download-progress') return
+          const modelPercent = Math.max(0, Math.min(100, Number(payload.progress || 0)))
+          publishBackgroundRemovalProgress({
+            phase: 'downloading',
+            status: String(payload.message || '正在下载 BiRefNet 开源模型'),
+            percent: 72 + Math.round(modelPercent * 0.23),
+            determinate: payload.determinate !== false
+          })
+        } catch {
+          // Ignore model-loader diagnostics.
+        }
+      }
+    })
+
+    publishBackgroundRemovalProgress({ phase: 'verifying', status: '正在校验本地 AI 环境', percent: 97, determinate: true })
+    await runRuntimeCommand(
+      paths.pythonPath,
+      ['-c', 'import torch, transformers, PIL, timm, kornia; print(torch.__version__)'],
+      { cwd: paths.installDir, env: runtimeEnv }
+    )
+    writeFileSync(paths.manifestPath, JSON.stringify({
+      version: '1',
+      model: 'ZhengPeng7/BiRefNet_dynamic',
+      gpu: gpuAvailable ? 'nvidia' : 'cpu',
+      installedAt: new Date().toISOString()
+    }, null, 2), 'utf8')
+    publishBackgroundRemovalProgress({ phase: 'complete', status: '本地 AI 抠图环境安装完成', percent: 100, determinate: true })
+    backgroundRemovalInstalling = false
+    return backgroundRemovalRuntimeStatus()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    publishBackgroundRemovalProgress({ phase: 'error', status: message, percent: 0, determinate: true })
+    throw error
+  } finally {
+    backgroundRemovalInstalling = false
+  }
+}
+
+function uniqueBackgroundRemovalPath(inputPath: string): string {
+  const outputDir = join(dirname(inputPath), 'output')
+  mkdirSync(outputDir, { recursive: true })
+  const base = basename(inputPath, extname(inputPath))
+  let candidate = join(outputDir, `${base}-cutout.png`)
+  let suffix = 2
+  while (existsSync(candidate)) {
+    candidate = join(outputDir, `${base}-cutout-${suffix}.png`)
+    suffix += 1
+  }
+  return candidate
+}
+
+async function runBackgroundRemoval(inputPath: string): Promise<BackgroundRemovalResult> {
+  if (!IMAGE_EXTENSIONS.has(extname(inputPath).toLowerCase())) {
+    throw new Error('请选择 PNG / JPG / WebP 图片。')
+  }
+  const paths = backgroundRemovalPaths()
+  if (!existsSync(paths.pythonPath) || !existsSync(paths.scriptPath)) {
+    throw new Error('BiRefNet demo 运行环境尚未安装，请先运行 scripts/setup-birefnet-demo.ps1。')
+  }
+  mkdirSync(paths.cacheDir, { recursive: true })
+  const outputPath = uniqueBackgroundRemovalPath(inputPath)
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      paths.pythonPath,
+      [paths.scriptPath, inputPath, outputPath, '--cache-dir', paths.cacheDir],
+      {
+        cwd: app.getAppPath(),
+        windowsHide: true,
+        env: { ...process.env, PYTHONUTF8: '1' }
+      }
+    )
+    let stdout = ''
+    let stderr = ''
+    let resultPayload: Omit<BackgroundRemovalResult, 'dataUrl'> | null = null
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+      const lines = stdout.split(/\r?\n/)
+      stdout = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try {
+          const payload = JSON.parse(line) as Record<string, unknown>
+          if (payload.event === 'complete') {
+            resultPayload = {
+              outputPath: String(payload.outputPath || outputPath),
+              width: Number(payload.width || 1),
+              height: Number(payload.height || 1),
+              size: Number(payload.size || 0),
+              elapsedMs: Number(payload.elapsedMs || 0)
+            }
+          } else if (payload.event === 'error') {
+            stderr = String(payload.message || stderr)
+          }
+          if (payload.message || payload.event === 'complete') {
+            const progress: BackgroundRemovalProgress = {
+              phase:
+                payload.event === 'download-progress'
+                  ? 'downloading'
+                  : payload.event === 'processing' || payload.event === 'postprocessing'
+                    ? 'processing'
+                    : payload.event === 'saving'
+                      ? 'saving'
+                      : payload.event === 'complete'
+                        ? 'complete'
+                        : payload.event === 'error'
+                          ? 'error'
+                          : 'loading',
+              status: String(payload.message || (payload.event === 'complete' ? '抠图完成' : '正在准备')),
+              percent: Math.max(0, Math.min(100, Number(payload.progress || 0))),
+              determinate: payload.determinate !== false
+            }
+            mainWindow?.webContents.send('background-removal:progress', progress)
+          }
+        } catch {
+          // Keep non-JSON model loader output out of the UI.
+        }
+      }
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0 || !resultPayload || !existsSync(resultPayload.outputPath)) {
+        reject(new Error(stderr.trim() || `BiRefNet 运行失败（退出码 ${code ?? 'unknown'}）。`))
+        return
+      }
+      const buffer = readFileSync(resultPayload.outputPath)
+      resolve({
+        ...resultPayload,
+        dataUrl: `data:image/png;base64,${buffer.toString('base64')}`
+      })
+    })
+  })
+}
+
 async function uploadMediaWithParentType(
   config: AppConfig,
   filePath: string,
@@ -1531,6 +1873,34 @@ ipcMain.handle('upload:one', (_, request: UploadRequest) => uploadOne(request))
 ipcMain.handle('compression:inspect', (_, path: string) => inspectCompressionImage(path))
 ipcMain.handle('compression:preview', (_, request: CompressionPreviewRequest) => previewCompression(request))
 ipcMain.handle('compression:run', (_, request: CompressionRunRequest) => runCompression(request))
+ipcMain.handle('background-removal:status', () => backgroundRemovalRuntimeStatus())
+ipcMain.handle('background-removal:pick-install-directory', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '选择本地 AI 抠图环境安装位置',
+    defaultPath: backgroundRemovalPaths().installDir,
+    properties: ['openDirectory', 'createDirectory']
+  })
+  return result.canceled ? '' : result.filePaths[0]
+})
+ipcMain.handle('background-removal:install-runtime', (_, installDir?: string) =>
+  installBackgroundRemovalRuntime(installDir)
+)
+ipcMain.handle('background-removal:run', (_, path: string) => runBackgroundRemoval(path))
+ipcMain.handle('background-removal:copy-result', (_, path: string, dataUrl?: string) => {
+  if (!dataUrl && (!path || !existsSync(path))) throw new Error('抠图结果不存在。')
+  const image = dataUrl ? nativeImage.createFromDataURL(dataUrl) : nativeImage.createFromPath(path)
+  if (image.isEmpty()) throw new Error('无法读取抠图结果。')
+  clipboard.writeImage(image)
+})
+ipcMain.handle('background-removal:save-edit', (_, path: string, dataUrl: string) => {
+  if (!path || !dataUrl.startsWith('data:image/png;base64,')) throw new Error('修补结果格式无效。')
+  const buffer = Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64')
+  writeFileSync(path, buffer)
+})
+ipcMain.handle('shell:show-item-in-folder', (_, path: string) => {
+  if (!path || !existsSync(path)) throw new Error('成品文件不存在，可能已被移动或删除。')
+  shell.showItemInFolder(path)
+})
 ipcMain.handle('window:prepare-collapse', () => {
   const target = resolveCollapseTarget()
   return { deltaX: target.deltaX, deltaY: target.deltaY }
@@ -1538,7 +1908,10 @@ ipcMain.handle('window:prepare-collapse', () => {
 ipcMain.handle('window:collapse', (_, options?: { deferReveal?: boolean }) => collapseWindow(options))
 ipcMain.handle('window:reveal-collapsed', () => revealCollapsedWindow())
 ipcMain.handle('window:expand', () => expandWindow())
-ipcMain.handle('window:set-mode', (_, mode: 'upload' | 'toolbox' | 'compression') => setWindowMode(mode))
+ipcMain.handle(
+  'window:set-mode',
+  (_, mode: 'upload' | 'toolbox' | 'compression' | 'background-removal') => setWindowMode(mode)
+)
 ipcMain.handle('window:get-position', () => {
   if (!mainWindow) return { x: 0, y: 0 }
   const [x, y] = mainWindow.getPosition()

@@ -1,7 +1,7 @@
 #boli-import-drop-target {
   position: fixed;
-  right: 22px;
-  bottom: 22px;
+  right: 16px;
+  bottom: 16px;
   z-index: 2147483647;
   display: flex;
   align-items: center;
@@ -42,8 +42,8 @@
 
 .boli-import-toast {
   position: fixed;
-  right: 24px;
-  bottom: 86px;
+  right: 16px;
+  bottom: 78px;
   z-index: 2147483647;
   padding: 10px 14px;
   border-radius: 999px;

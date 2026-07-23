@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowDownToLine,
   CheckCircle2,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   CircleAlert,
   Cloud,
+  Copy,
   Database,
+  Eraser,
   FileImage,
   FolderOpen,
   FolderCog,
@@ -15,22 +19,36 @@ import {
   ImagePlus,
   ListChecks,
   Loader2,
+  Maximize2,
   Minimize2,
   Pause,
+  Paintbrush,
   Play,
   RefreshCw,
+  Redo2,
   RotateCcw,
   Save,
   Settings,
   SlidersHorizontal,
   Trash2,
+  Undo2,
   Upload,
+  WandSparkles,
   X
 } from 'lucide-react'
+import {
+  applyManualAlphaDelta,
+  captureManualAlphaDelta,
+  refineBackgroundRemoval
+} from './backgroundRefinement'
 import type {
   AppConfig,
   AssetFile,
+  BackgroundRemovalProgress,
+  BackgroundRemovalResult,
+  BackgroundRemovalRuntimeStatus,
   BitableField,
+  BrowserImportDelivery,
   CompressionFormat,
   CompressionInspectResult,
   CompressionOptions,
@@ -54,11 +72,13 @@ function loadFrames(glob: Record<string, string>): string[] {
 }
 
 const poringFrames = {
-  idle: loadFrames(import.meta.glob('./assets/poring-sequence/idle/*.png', { eager: true, query: '?url', import: 'default' })),
-  eat: loadFrames(import.meta.glob('./assets/poring-sequence/eat/*.png', { eager: true, query: '?url', import: 'default' })),
-  click: loadFrames(import.meta.glob('./assets/poring-sequence/click/*.png', { eager: true, query: '?url', import: 'default' })),
-  clickLoop: loadFrames(import.meta.glob('./assets/poring-sequence/click-loop/*.png', { eager: true, query: '?url', import: 'default' }))
+  idle: loadFrames(import.meta.glob('./assets/poring-sequence/idle/*.webp', { eager: true, query: '?url', import: 'default' })),
+  eat: loadFrames(import.meta.glob('./assets/poring-sequence/eat/*.webp', { eager: true, query: '?url', import: 'default' })),
+  click: loadFrames(import.meta.glob('./assets/poring-sequence/click/*.webp', { eager: true, query: '?url', import: 'default' })),
+  clickLoop: loadFrames(import.meta.glob('./assets/poring-sequence/click-loop/*.webp', { eager: true, query: '?url', import: 'default' }))
 }
+
+type PoringMood = 'idle' | 'hover' | 'eating' | 'press-intro' | 'pressed'
 
 type QueueItem = ImageItem & {
   overlays: OverlayState
@@ -116,7 +136,7 @@ type UpdateState = {
   percent: number
 }
 
-type ToolView = 'upload' | 'toolbox' | 'compression'
+type ToolView = 'upload' | 'toolbox' | 'compression' | 'background-removal'
 
 type CompressionItem = CompressionInspectResult & {
   id: string
@@ -134,6 +154,38 @@ const DEFAULT_ACCENT = '#fd7e8a'
 const PORING_FPS = 24
 const PORING_FRAME_MS = 1000 / PORING_FPS
 
+function PoringSequence({ mood }: { mood: PoringMood }): JSX.Element {
+  const [frame, setFrame] = useState(0)
+  const frames = useMemo(() => {
+    if (mood === 'eating') return poringFrames.eat
+    if (mood === 'hover') return [poringFrames.eat[3] || poringFrames.eat[0]].filter(Boolean)
+    if (mood === 'press-intro') return poringFrames.click
+    if (mood === 'pressed') return poringFrames.clickLoop
+    return poringFrames.idle
+  }, [mood])
+
+  useEffect(() => {
+    Object.values(poringFrames)
+      .flat()
+      .forEach((source) => {
+        const image = new Image()
+        image.src = source
+      })
+  }, [])
+
+  useEffect(() => {
+    setFrame(0)
+    if (frames.length <= 1) return
+    const timer = window.setInterval(() => {
+      setFrame((current) => current + 1)
+    }, mood === 'idle' ? 120 : PORING_FRAME_MS)
+    return () => window.clearInterval(timer)
+  }, [frames.length, mood])
+
+  const source = frames[frame % Math.max(1, frames.length)] || ''
+  return <img className="poring-image" src={source} alt="波利AI图助手" />
+}
+
 function cloneOverlays(overlays: OverlayState): OverlayState {
   return {
     logo: { ...overlays.logo, scale: overlayDefaultScale.logo },
@@ -148,7 +200,12 @@ function App(): JSX.Element {
   const [collapsed, setCollapsed] = useState(true)
   const [isCollapsing, setIsCollapsing] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [toolView, setToolView] = useState<ToolView>('upload')
+  const [toolView, setToolView] = useState<ToolView>(() => {
+    const requested = import.meta.env.DEV ? import.meta.env.VITE_START_TOOL : ''
+    return requested === 'toolbox' || requested === 'compression' || requested === 'background-removal'
+      ? requested
+      : 'upload'
+  })
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [detailItemId, setDetailItemId] = useState<string>('')
@@ -163,8 +220,7 @@ function App(): JSX.Element {
   const [videoTimelineFrames, setVideoTimelineFrames] = useState<VideoFrameSelection[]>([])
   const [videoTimelineZoom, setVideoTimelineZoom] = useState(1)
   const [videoLoadError, setVideoLoadError] = useState('')
-  const [poringMood, setPoringMood] = useState<'idle' | 'hover' | 'eating' | 'press-intro' | 'pressed'>('idle')
-  const [poringFrame, setPoringFrame] = useState(0)
+  const [poringMood, setPoringMood] = useState<PoringMood>('idle')
   const [assetFiles, setAssetFiles] = useState<Record<OverlayKind, AssetFile[]>>({
     logo: [],
     slogan: [],
@@ -173,6 +229,30 @@ function App(): JSX.Element {
   const [compressionQueue, setCompressionQueue] = useState<CompressionItem[]>([])
   const [selectedCompressionId, setSelectedCompressionId] = useState('')
   const [compressionBusy, setCompressionBusy] = useState(false)
+  const [backgroundRemovalItem, setBackgroundRemovalItem] = useState<CompressionInspectResult | null>(null)
+  const [backgroundRemovalResult, setBackgroundRemovalResult] = useState<BackgroundRemovalResult | null>(null)
+  const [backgroundRemovalRuntime, setBackgroundRemovalRuntime] = useState<BackgroundRemovalRuntimeStatus | null>(null)
+  const [backgroundRemovalBusy, setBackgroundRemovalBusy] = useState(false)
+  const [backgroundRemovalStatus, setBackgroundRemovalStatus] = useState('')
+  const [backgroundRemovalProgress, setBackgroundRemovalProgress] = useState<BackgroundRemovalProgress>({
+    phase: 'idle',
+    status: '',
+    percent: 0,
+    determinate: true
+  })
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const requested = import.meta.env.VITE_START_TOOL
+    if (requested === 'toolbox' || requested === 'compression' || requested === 'background-removal') {
+      void window.assetUploader.setWindowMode(requested)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !import.meta.env.VITE_BACKGROUND_TEST_IMAGE) return
+    void setBackgroundRemovalPath(import.meta.env.VITE_BACKGROUND_TEST_IMAGE)
+  }, [])
 
   useEffect(() => {
     window.assetUploader.getConfig().then((next) => {
@@ -226,6 +306,14 @@ function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    void window.assetUploader.getBackgroundRemovalStatus().then(setBackgroundRemovalRuntime)
+    return window.assetUploader.onBackgroundRemovalStatus((progress) => {
+      setBackgroundRemovalProgress(progress)
+      setBackgroundRemovalStatus(progress.status)
+    })
+  }, [])
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       setConfig((current) => {
         if (!current) return current
@@ -256,14 +344,6 @@ function App(): JSX.Element {
     () => compressionQueue.find((item) => item.id === selectedCompressionId) || compressionQueue[0],
     [compressionQueue, selectedCompressionId]
   )
-  const activePoringFrames = useMemo(() => {
-    if (poringMood === 'eating') return poringFrames.eat
-    if (poringMood === 'hover') return [poringFrames.eat[3] || poringFrames.eat[0]].filter(Boolean)
-    if (poringMood === 'press-intro') return poringFrames.click
-    if (poringMood === 'pressed') return poringFrames.clickLoop
-    return poringFrames.idle
-  }, [poringMood])
-  const activePoringFrame = activePoringFrames[poringFrame % Math.max(1, activePoringFrames.length)] || ''
   const autoSyncedRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const eatAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -289,32 +369,11 @@ function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    Object.values(poringFrames)
-      .flat()
-      .forEach((source) => {
-        const image = new Image()
-        image.src = source
-      })
-  }, [])
-
-  useEffect(() => {
     if (!config || autoSyncedRef.current) return
     if (!config.feishu.appId || !config.feishu.appSecret || !config.feishu.appToken) return
     autoSyncedRef.current = true
     void syncSchema()
   }, [config?.feishu.appId, config?.feishu.appSecret, config?.feishu.appToken])
-
-  useEffect(() => {
-    setPoringFrame(0)
-  }, [poringMood])
-
-  useEffect(() => {
-    if (!collapsed || activePoringFrames.length <= 1) return
-    const timer = window.setInterval(() => {
-      setPoringFrame((frame) => frame + 1)
-    }, poringMood === 'idle' ? 120 : PORING_FRAME_MS)
-    return () => window.clearInterval(timer)
-  }, [activePoringFrames.length, collapsed, poringMood])
 
   useEffect(() => {
     if (poringMood !== 'press-intro') return
@@ -467,7 +526,15 @@ function App(): JSX.Element {
   }
 
   useEffect(() => {
-    return window.assetUploader.onBrowserImport((items) => {
+    return window.assetUploader.onBrowserImport((delivery: BrowserImportDelivery) => {
+      const { items, target } = delivery
+      if (target === 'background-removal' && items[0]) {
+        setVideoPanel(null)
+        setSettingsOpen(false)
+        setToolView('background-removal')
+        void setBackgroundRemovalPath(items[0].path)
+        return
+      }
       appendImages(items)
       if (items.length) {
         setVideoPanel(null)
@@ -737,6 +804,93 @@ function App(): JSX.Element {
   async function pickCompressionImages(): Promise<void> {
     const items = await window.assetUploader.pickImages()
     await addCompressionPaths(items.map((item) => item.path))
+  }
+
+  async function setBackgroundRemovalPath(path: string): Promise<void> {
+    try {
+      const inspected = await window.assetUploader.inspectCompressionImage(path)
+      setBackgroundRemovalItem(inspected)
+      setBackgroundRemovalResult(null)
+      setBackgroundRemovalStatus('图片已就绪')
+      setBackgroundRemovalProgress({ phase: 'idle', status: '图片已就绪', percent: 0, determinate: true })
+    } catch (error) {
+      setBackgroundRemovalStatus(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  function clearBackgroundRemovalCanvas(): void {
+    if (backgroundRemovalBusy) return
+    setBackgroundRemovalItem(null)
+    setBackgroundRemovalResult(null)
+    setBackgroundRemovalStatus('等待添加图片')
+    setBackgroundRemovalProgress({ phase: 'idle', status: '', percent: 0, determinate: true })
+  }
+
+  async function pickBackgroundRemovalImage(): Promise<void> {
+    const items = await window.assetUploader.pickImages()
+    if (items[0]) await setBackgroundRemovalPath(items[0].path)
+  }
+
+  async function installBackgroundRemovalEnvironment(chooseDirectory = false): Promise<void> {
+    if (backgroundRemovalBusy) return
+    let installDir = backgroundRemovalRuntime?.installDir
+    if (chooseDirectory) {
+      installDir = await window.assetUploader.pickBackgroundRemovalInstallDirectory()
+      if (!installDir) return
+    }
+    setBackgroundRemovalBusy(true)
+    setBackgroundRemovalStatus('正在准备本地 AI 抠图环境')
+    setBackgroundRemovalProgress({
+      phase: 'installing',
+      status: '正在准备本地 AI 抠图环境',
+      percent: 0,
+      determinate: false
+    })
+    try {
+      const runtime = await window.assetUploader.installBackgroundRemovalRuntime(installDir)
+      setBackgroundRemovalRuntime(runtime)
+      setBackgroundRemovalStatus(runtime.message)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setBackgroundRemovalStatus(message)
+      setBackgroundRemovalProgress({ phase: 'error', status: message, percent: 0, determinate: true })
+      setBackgroundRemovalRuntime(await window.assetUploader.getBackgroundRemovalStatus())
+    } finally {
+      setBackgroundRemovalBusy(false)
+    }
+  }
+
+  async function runBackgroundRemovalDemo(): Promise<void> {
+    if (!backgroundRemovalItem || backgroundRemovalBusy) return
+    setBackgroundRemovalBusy(true)
+    setBackgroundRemovalResult(null)
+    setBackgroundRemovalStatus(
+      backgroundRemovalRuntime?.modelDownloaded ? '正在启动 BiRefNet...' : '首次运行正在下载约 444 MB 模型...'
+    )
+    setBackgroundRemovalProgress({
+      phase: backgroundRemovalRuntime?.modelDownloaded ? 'loading' : 'downloading',
+      status: backgroundRemovalRuntime?.modelDownloaded ? '正在启动 BiRefNet' : '正在准备模型下载',
+      percent: 0,
+      determinate: false
+    })
+    try {
+      const result = await window.assetUploader.runBackgroundRemoval(backgroundRemovalItem.path)
+      setBackgroundRemovalResult(result)
+      setBackgroundRemovalStatus(`抠图完成，用时 ${(result.elapsedMs / 1000).toFixed(1)} 秒`)
+      setBackgroundRemovalProgress({
+        phase: 'complete',
+        status: `抠图完成，用时 ${(result.elapsedMs / 1000).toFixed(1)} 秒`,
+        percent: 100,
+        determinate: true
+      })
+      setBackgroundRemovalRuntime(await window.assetUploader.getBackgroundRemovalStatus())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setBackgroundRemovalStatus(message)
+      setBackgroundRemovalProgress({ phase: 'error', status: message, percent: 0, determinate: true })
+    } finally {
+      setBackgroundRemovalBusy(false)
+    }
   }
 
   async function addCompressionPaths(paths: string[]): Promise<void> {
@@ -1312,7 +1466,59 @@ function App(): JSX.Element {
         onPointerCancel={handlePoringPointerCancel}
       >
         <div className="poring-shadow" />
-        <img className="poring-image" src={activePoringFrame} alt="波利AI图助手" />
+        <PoringSequence mood={poringMood} />
+      </div>
+    )
+  }
+
+  const shellToolView: ToolView = toolView
+
+  if (toolView === 'background-removal') {
+    return (
+      <div
+        className={`background-removal-shell ${isCollapsing ? 'is-minimizing' : ''}`}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault()
+          const path = pathsFromDrop(event.dataTransfer.files).find(isImagePath)
+          if (path) void setBackgroundRemovalPath(path)
+        }}
+      >
+        <UpdateToast state={updateState} onInstall={() => void window.assetUploader.installUpdate()} />
+        <BackgroundRemovalDemo
+          item={backgroundRemovalItem}
+          result={backgroundRemovalResult}
+          runtime={backgroundRemovalRuntime}
+          busy={backgroundRemovalBusy}
+          status={backgroundRemovalStatus}
+          progress={backgroundRemovalProgress}
+          onBack={() => void switchToolView('toolbox')}
+          onPick={() => void pickBackgroundRemovalImage()}
+          onClear={clearBackgroundRemovalCanvas}
+          onInstallEnvironment={(chooseDirectory) => void installBackgroundRemovalEnvironment(chooseDirectory)}
+          onRun={() => void runBackgroundRemovalDemo()}
+          onCopyResult={async (dataUrl) => {
+            if (!backgroundRemovalResult) return
+            try {
+              await window.assetUploader.copyBackgroundRemovalResult(backgroundRemovalResult.outputPath, dataUrl)
+              setBackgroundRemovalStatus('透明 PNG 已复制到剪贴板')
+            } catch (error) {
+              setBackgroundRemovalStatus(error instanceof Error ? error.message : String(error))
+            }
+          }}
+          onSaveEdit={async (dataUrl) => {
+            if (!backgroundRemovalResult) return
+            try {
+              await window.assetUploader.saveBackgroundRemovalEdit(backgroundRemovalResult.outputPath, dataUrl)
+              setBackgroundRemovalStatus('修补已自动保存')
+            } catch (error) {
+              setBackgroundRemovalStatus(error instanceof Error ? error.message : String(error))
+            }
+          }}
+          onShowOutput={() => {
+            if (backgroundRemovalResult) void window.assetUploader.showItemInFolder(backgroundRemovalResult.outputPath)
+          }}
+        />
       </div>
     )
   }
@@ -1321,7 +1527,9 @@ function App(): JSX.Element {
     <div
       className={`shell ${videoPanel ? 'video-shell' : ''} ${toolView !== 'upload' ? 'tool-shell' : ''} ${
         toolView === 'toolbox' ? 'toolbox-shell' : ''
-      } ${toolView === 'compression' ? 'compression-shell' : ''} ${isCollapsing ? 'is-minimizing' : ''}`}
+      } ${toolView === 'compression' ? 'compression-shell' : ''} ${
+        ''
+      } ${isCollapsing ? 'is-minimizing' : ''}`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault()
@@ -1352,7 +1560,7 @@ function App(): JSX.Element {
           </div>
         ) : toolView !== 'upload' ? (
           <div className={`tool-title ${toolView === 'compression' ? 'compression-title' : ''}`}>
-            {toolView === 'toolbox' && (
+            {toolView !== 'compression' && (
             <button
               className="icon-btn no-drag"
               onClick={() => void switchToolView('upload')}
@@ -1361,10 +1569,28 @@ function App(): JSX.Element {
               <ArrowLeft size={18} />
             </button>
             )}
-            <strong>{toolView === 'compression' ? '图片压缩' : 'Poli Toolbox'}</strong>
+            <strong>
+              {toolView === 'compression'
+                ? '图片压缩'
+                : shellToolView === 'background-removal'
+                  ? '背景移除'
+                  : '波利工具箱'}
+            </strong>
             <div>
-              <strong>{toolView === 'compression' ? '图片压缩' : '波利工具箱'}</strong>
-              <span>{toolView === 'compression' ? '批量压缩与单图微调' : '右键波利打开的工作流入口'}</span>
+              <strong>
+                {toolView === 'compression'
+                  ? '图片压缩'
+                  : shellToolView === 'background-removal'
+                    ? '背景移除 Demo'
+                    : '波利工具箱'}
+              </strong>
+              <span>
+                {toolView === 'compression'
+                  ? '批量压缩与单图微调'
+                  : shellToolView === 'background-removal'
+                    ? 'BiRefNet 本地效果验证'
+                    : '右键波利打开的工作流入口'}
+              </span>
             </div>
           </div>
         ) : (
@@ -1454,7 +1680,10 @@ function App(): JSX.Element {
           onExport={() => void exportVideoFrames()}
         />
       ) : toolView === 'toolbox' ? (
-        <ToolboxViewV2 onOpenCompression={() => void switchToolView('compression')} />
+        <ToolboxViewV2
+          onOpenCompression={() => void switchToolView('compression')}
+          onOpenBackgroundRemoval={() => void switchToolView('background-removal')}
+        />
       ) : toolView === 'compression' ? (
         <CompressionWorkbenchReference
           config={config}
@@ -1539,7 +1768,7 @@ function App(): JSX.Element {
                         ? allItemsReady
                           ? '全部素材已准备，可以开始上传'
                           : '补全字段和图层后开始上传'
-                        : '本地成品已生成，必要时可继续补传飞书'
+                        : '本地成品已生成，飞书记录与图片均已上传'
                       : '拖入图片或点击波利添加队列'}
                 </small>
               </div>
@@ -1737,7 +1966,7 @@ function VideoFramePickerStitch({
               <button className="link-btn" type="button" onClick={onClearFrames}>
                 清空列表
               </button>
-              <strong>已选截图 ({panel.frames.length})</strong>
+              <strong>已选截图（{panel.frames.length}）</strong>
               <span>素材形式默认：视频截图</span>
             </div>
             <div className="video-frame-list">
@@ -1908,7 +2137,7 @@ function VideoFramePicker({
 
         <aside className="video-frames">
           <div className="video-frames-title">
-            <strong>已选截图 ({panel.frames.length})</strong>
+            <strong>已选截图（{panel.frames.length}）</strong>
             <small>素材形式默认：视频截图</small>
           </div>
           <div className="video-frame-list">
@@ -2111,7 +2340,7 @@ const fieldAliases = {
   completionDate: ['完成日期', '日期', 'Date'],
   fullName: ['素材完整命名', '完整命名', '命名'],
   finalAsset: ['成品', '成品图', '附件'],
-  progress: ['进展', '進展', '状态', 'Status']
+  progress: ['进展', '状态', 'Status']
 }
 
 function withResolvedFieldMapping(config: AppConfig, fields: BitableField[]): AppConfig {
@@ -2288,7 +2517,13 @@ function MaskedSettingInput({
   )
 }
 
-function ToolboxViewV2({ onOpenCompression }: { onOpenCompression: () => void }): JSX.Element {
+function ToolboxViewV2({
+  onOpenCompression,
+  onOpenBackgroundRemoval
+}: {
+  onOpenCompression: () => void
+  onOpenBackgroundRemoval: () => void
+}): JSX.Element {
   return (
     <main className="toolbox-view-v2">
       <div className="toolbox-inner-v2">
@@ -2301,7 +2536,20 @@ function ToolboxViewV2({ onOpenCompression }: { onOpenCompression: () => void })
           </span>
           <em>可用</em>
           <strong>图片压缩</strong>
-          <small>Batch compression, single image fine-tuning, side-by-side preview.</small>
+          <small>批量压缩、单图微调与前后效果对比。</small>
+          <span className="toolbox-card-action-v2">
+            打开工具
+            <span aria-hidden="true">→</span>
+          </span>
+        </button>
+
+        <button className="toolbox-card-v2 available" onClick={onOpenBackgroundRemoval} type="button">
+          <span className="toolbox-card-icon-v2">
+            <Eraser size={22} />
+          </span>
+          <em>可用</em>
+          <strong>背景移除</strong>
+          <small>使用本地 BiRefNet 识别主体，导出带透明通道的 PNG。</small>
           <span className="toolbox-card-action-v2">
             打开工具
             <span aria-hidden="true">→</span>
@@ -2310,20 +2558,11 @@ function ToolboxViewV2({ onOpenCompression }: { onOpenCompression: () => void })
 
         <div className="toolbox-card-v2 disabled">
           <span className="toolbox-card-icon-v2">
-            <Trash2 size={22} />
-          </span>
-          <em>开发中</em>
-          <strong>背景移除</strong>
-          <small>Automatically separate subjects from backgrounds with high precision.</small>
-        </div>
-
-        <div className="toolbox-card-v2 disabled">
-          <span className="toolbox-card-icon-v2">
             <Minimize2 size={22} />
           </span>
           <em>开发中</em>
           <strong>AI 放大</strong>
-          <small>Enhance resolution and clarity of images using advanced AI models.</small>
+          <small>使用本地或云端模型提升图片分辨率与清晰度。</small>
         </div>
 
         <div className="toolbox-card-v2 disabled">
@@ -2340,7 +2579,7 @@ function ToolboxViewV2({ onOpenCompression }: { onOpenCompression: () => void })
               <div className="shot-title-v2">
                 <span>FP</span>
                 <strong>ROC平面 🎨</strong>
-                <span>↻  ⚙  ↙</span>
+                <span>→ ☆ →</span>
               </div>
               <div className="shot-sidebar-v2">
                 <strong>☁ 上传队列</strong>
@@ -2358,6 +2597,842 @@ function ToolboxViewV2({ onOpenCompression }: { onOpenCompression: () => void })
         </section>
       </div>
     </main>
+  )
+}
+
+function BackgroundRemovalDemo({
+  item,
+  result,
+  runtime,
+  busy,
+  status,
+  progress,
+  onBack,
+  onPick,
+  onClear,
+  onInstallEnvironment,
+  onRun,
+  onCopyResult,
+  onSaveEdit,
+  onShowOutput
+}: {
+  item: CompressionInspectResult | null
+  result: BackgroundRemovalResult | null
+  runtime: BackgroundRemovalRuntimeStatus | null
+  busy: boolean
+  status: string
+  progress: BackgroundRemovalProgress
+  onBack: () => void
+  onPick: () => void
+  onClear: () => void
+  onInstallEnvironment: (chooseDirectory: boolean) => void
+  onRun: () => void
+  onCopyResult: (dataUrl?: string) => void
+  onSaveEdit: (dataUrl: string) => void
+  onShowOutput: () => void
+}): JSX.Element {
+  const [divider, setDivider] = useState(100)
+  const [brushMode, setBrushMode] = useState<'none' | 'restore' | 'erase'>('none')
+  const [brushSize, setBrushSize] = useState(48)
+  const [brushSoftness, setBrushSoftness] = useState(50)
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; size: number } | null>(null)
+  const [canvasReady, setCanvasReady] = useState(false)
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
+  const [zoom, setZoom] = useState(100)
+  const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 })
+  const [spacePressed, setSpacePressed] = useState(false)
+  const [canvasPanning, setCanvasPanning] = useState(false)
+  const [previewBackground, setPreviewBackground] = useState<'checker' | 'white' | 'black' | 'custom'>('checker')
+  const [customBackground, setCustomBackground] = useState('#35c98b')
+  const [edgePanelCollapsed, setEdgePanelCollapsed] = useState(false)
+  const [edgeOffset, setEdgeOffset] = useState(0)
+  const [edgeSmooth, setEdgeSmooth] = useState(1)
+  const [edgeFeather, setEdgeFeather] = useState(0.5)
+  const [dewhite, setDewhite] = useState(0)
+  const [colorCleanup, setColorCleanup] = useState(false)
+  const [colorCleanupStrength, setColorCleanupStrength] = useState(50)
+  const [refining, setRefining] = useState(false)
+  const [historyVersion, setHistoryVersion] = useState(0)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const editCanvasRef = useRef<HTMLCanvasElement>(null)
+  const originalImageRef = useRef<HTMLImageElement | null>(null)
+  const originalImageDataRef = useRef<ImageData | null>(null)
+  const modelImageDataRef = useRef<ImageData | null>(null)
+  const refinedImageDataRef = useRef<ImageData | null>(null)
+  const manualAlphaDeltaRef = useRef<Int16Array | null>(null)
+  const refineTimerRef = useRef<number | null>(null)
+  const brushStampRef = useRef<HTMLCanvasElement | null>(null)
+  const brushHistoryRef = useRef<string[]>([])
+  const brushRedoRef = useRef<string[]>([])
+  const brushStrokeRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+  const revealAnimationRef = useRef<number | null>(null)
+  const animatedResultRef = useRef('')
+  const canvasPanGestureRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+
+  const stopRevealAnimation = (): void => {
+    if (revealAnimationRef.current !== null) {
+      window.cancelAnimationFrame(revealAnimationRef.current)
+      revealAnimationRef.current = null
+    }
+  }
+
+  const moveDivider = (clientX: number): void => {
+    const bounds = stageRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    stopRevealAnimation()
+    setDivider(Math.max(0, Math.min(100, ((clientX - bounds.left) / bounds.width) * 100)))
+  }
+
+  useEffect(() => {
+    stopRevealAnimation()
+    animatedResultRef.current = ''
+    setDivider(100)
+    setBrushMode('none')
+    setZoom(100)
+    setCanvasPan({ x: 0, y: 0 })
+  }, [item?.path])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage || !item) {
+      setStageSize({ width: 0, height: 0 })
+      return
+    }
+    const updateSize = (): void => {
+      const bounds = stage.getBoundingClientRect()
+      setStageSize({ width: bounds.width, height: bounds.height })
+    }
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [item?.path, Boolean(result)])
+
+  const fitSize = useMemo(() => {
+    if (!item || !stageSize.width || !stageSize.height) return { width: 0, height: 0 }
+    const scale = Math.min(stageSize.width / item.width, stageSize.height / item.height)
+    return { width: item.width * scale, height: item.height * scale }
+  }, [item, stageSize])
+
+  useEffect(() => {
+    const canvas = editCanvasRef.current
+    if (!canvas || !item || !result) {
+      setCanvasReady(false)
+      setBrushMode('none')
+      setRefining(false)
+      originalImageRef.current = null
+      originalImageDataRef.current = null
+      modelImageDataRef.current = null
+      refinedImageDataRef.current = null
+      manualAlphaDeltaRef.current = null
+      brushHistoryRef.current = []
+      brushRedoRef.current = []
+      setHistoryVersion((current) => current + 1)
+      return
+    }
+    let cancelled = false
+    const original = new Image()
+    const cutout = new Image()
+    const ready = (image: HTMLImageElement, source: string): Promise<void> =>
+      new Promise((resolve, reject) => {
+        image.onload = () => resolve()
+        image.onerror = () => reject(new Error('无法载入修补画布。'))
+        image.src = source
+      })
+    void Promise.all([ready(original, item.dataUrl), ready(cutout, result.dataUrl)]).then(() => {
+      if (cancelled) return
+      canvas.width = result.width
+      canvas.height = result.height
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = canvas.width
+      sourceCanvas.height = canvas.height
+      const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true })
+      const originalCanvas = document.createElement('canvas')
+      originalCanvas.width = canvas.width
+      originalCanvas.height = canvas.height
+      const originalContext = originalCanvas.getContext('2d', { willReadFrequently: true })
+      if (!sourceContext || !originalContext) return
+      sourceContext.drawImage(cutout, 0, 0, canvas.width, canvas.height)
+      originalContext.drawImage(original, 0, 0, canvas.width, canvas.height)
+      originalImageRef.current = original
+      modelImageDataRef.current = sourceContext.getImageData(0, 0, canvas.width, canvas.height)
+      originalImageDataRef.current = originalContext.getImageData(0, 0, canvas.width, canvas.height)
+      refinedImageDataRef.current = modelImageDataRef.current
+      manualAlphaDeltaRef.current = null
+      canvas.getContext('2d', { willReadFrequently: true })?.putImageData(modelImageDataRef.current, 0, 0)
+      brushHistoryRef.current = []
+      brushRedoRef.current = []
+      setHistoryVersion((current) => current + 1)
+      setCanvasReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [item, result])
+
+  useEffect(() => {
+    if (!result || !canvasReady || animatedResultRef.current === result.outputPath) return
+    animatedResultRef.current = result.outputPath
+    stopRevealAnimation()
+    setBrushMode('none')
+    setDivider(100)
+    const duration = 1500
+    const delay = 180
+    const startedAt = performance.now() + delay
+    const animate = (now: number): void => {
+      if (now < startedAt) {
+        revealAnimationRef.current = window.requestAnimationFrame(animate)
+        return
+      }
+      const progressValue = Math.min(1, (now - startedAt) / duration)
+      const eased = 0.5 - Math.cos(progressValue * Math.PI) / 2
+      setDivider(100 * (1 - eased))
+      if (progressValue < 1) revealAnimationRef.current = window.requestAnimationFrame(animate)
+      else revealAnimationRef.current = null
+    }
+    revealAnimationRef.current = window.requestAnimationFrame(animate)
+    return stopRevealAnimation
+  }, [result?.outputPath, canvasReady])
+
+  useEffect(() => {
+    if (!canvasReady || !result) return
+    if (refineTimerRef.current !== null) window.clearTimeout(refineTimerRef.current)
+    setRefining(true)
+    refineTimerRef.current = window.setTimeout(() => {
+      const canvas = editCanvasRef.current
+      const model = modelImageDataRef.current
+      const original = originalImageDataRef.current
+      if (!canvas || !model || !original) {
+        setRefining(false)
+        return
+      }
+      const refined = refineBackgroundRemoval(model, original, {
+        edgeOffset,
+        edgeSmooth,
+        feather: edgeFeather,
+        dewhite,
+        colorCleanup,
+        colorCleanupStrength
+      })
+      refinedImageDataRef.current = refined
+      const output = applyManualAlphaDelta(refined, original, manualAlphaDeltaRef.current)
+      canvas.getContext('2d', { willReadFrequently: true })?.putImageData(output, 0, 0)
+      brushHistoryRef.current = []
+      brushRedoRef.current = []
+      setHistoryVersion((current) => current + 1)
+      setRefining(false)
+      onSaveEdit(canvas.toDataURL('image/png'))
+    }, 110)
+    return () => {
+      if (refineTimerRef.current !== null) window.clearTimeout(refineTimerRef.current)
+    }
+  }, [canvasReady, result, edgeOffset, edgeSmooth, edgeFeather, dewhite, colorCleanup, colorCleanupStrength])
+
+  const brushPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const canvas = editCanvasRef.current
+    if (!canvas) return null
+    const bounds = canvas.getBoundingClientRect()
+    if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top || clientY > bounds.bottom) return null
+    return {
+      x: ((clientX - bounds.left) / bounds.width) * canvas.width,
+      y: ((clientY - bounds.top) / bounds.height) * canvas.height
+    }
+  }
+
+  const updateBrushCursor = (clientX: number, clientY: number): void => {
+    const canvas = editCanvasRef.current
+    const point = brushPoint(clientX, clientY)
+    if (!canvas || !point) {
+      setBrushCursor(null)
+      return
+    }
+    const bounds = canvas.getBoundingClientRect()
+    setBrushCursor({
+      x: clientX - (stageRef.current?.getBoundingClientRect().left || 0),
+      y: clientY - (stageRef.current?.getBoundingClientRect().top || 0),
+      size: Math.max(8, brushSize * (bounds.width / canvas.width))
+    })
+  }
+
+  const stampBrush = (x: number, y: number): void => {
+    const canvas = editCanvasRef.current
+    const original = originalImageRef.current
+    if (!canvas || !original || brushMode === 'none') return
+    const diameter = Math.max(2, Math.round(brushSize))
+    const radius = diameter / 2
+    const context = canvas.getContext('2d')
+    if (!context) return
+
+    if (brushMode === 'erase') {
+      const gradient = context.createRadialGradient(x, y, 0, x, y, radius)
+      const solidEdge = Math.max(0, Math.min(0.98, 1 - brushSoftness / 100))
+      gradient.addColorStop(0, 'rgba(0,0,0,1)')
+      gradient.addColorStop(solidEdge, 'rgba(0,0,0,1)')
+      gradient.addColorStop(1, 'rgba(0,0,0,0)')
+      context.save()
+      context.globalCompositeOperation = 'destination-out'
+      context.fillStyle = gradient
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.fill()
+      context.restore()
+      return
+    }
+
+    const stamp = brushStampRef.current || document.createElement('canvas')
+    brushStampRef.current = stamp
+    stamp.width = diameter
+    stamp.height = diameter
+    const stampContext = stamp.getContext('2d')
+    if (!stampContext || !context) return
+
+    const left = x - radius
+    const top = y - radius
+    const sourceX = Math.max(0, left)
+    const sourceY = Math.max(0, top)
+    const sourceWidth = Math.max(0, Math.min(diameter, canvas.width - sourceX, diameter + Math.min(0, left)))
+    const sourceHeight = Math.max(0, Math.min(diameter, canvas.height - sourceY, diameter + Math.min(0, top)))
+    if (!sourceWidth || !sourceHeight) return
+    const targetX = sourceX - left
+    const targetY = sourceY - top
+    stampContext.clearRect(0, 0, diameter, diameter)
+    stampContext.globalCompositeOperation = 'source-over'
+    stampContext.drawImage(
+      original,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      targetX,
+      targetY,
+      sourceWidth,
+      sourceHeight
+    )
+    stampContext.globalCompositeOperation = 'destination-in'
+    const gradient = stampContext.createRadialGradient(radius, radius, 0, radius, radius, radius)
+    const solidEdge = Math.max(0, Math.min(0.98, 1 - brushSoftness / 100))
+    gradient.addColorStop(0, 'rgba(0,0,0,1)')
+    gradient.addColorStop(solidEdge, 'rgba(0,0,0,1)')
+    gradient.addColorStop(1, 'rgba(0,0,0,0)')
+    stampContext.fillStyle = gradient
+    stampContext.fillRect(0, 0, diameter, diameter)
+    stampContext.globalCompositeOperation = 'source-over'
+    context.drawImage(stamp, left, top)
+  }
+
+  const paintBrushLine = (fromX: number, fromY: number, toX: number, toY: number): void => {
+    const distance = Math.hypot(toX - fromX, toY - fromY)
+    const step = Math.max(1, brushSize * 0.18)
+    const count = Math.max(1, Math.ceil(distance / step))
+    for (let index = 1; index <= count; index += 1) {
+      const ratio = index / count
+      stampBrush(fromX + (toX - fromX) * ratio, fromY + (toY - fromY) * ratio)
+    }
+  }
+
+  const syncManualAlphaDelta = (): void => {
+    const canvas = editCanvasRef.current
+    const refined = refinedImageDataRef.current
+    if (!canvas || !refined) return
+    const current = canvas.getContext('2d', { willReadFrequently: true })?.getImageData(0, 0, canvas.width, canvas.height)
+    if (!current) return
+    manualAlphaDeltaRef.current = captureManualAlphaDelta(current, refined)
+  }
+
+  const saveBrushCanvas = (): void => {
+    const canvas = editCanvasRef.current
+    if (!canvas) return
+    syncManualAlphaDelta()
+    onSaveEdit(canvas.toDataURL('image/png'))
+  }
+
+  const restoreBrushSnapshot = (dataUrl: string): void => {
+    const canvas = editCanvasRef.current
+    if (!canvas) return
+    const image = new Image()
+    image.onload = () => {
+      const context = canvas.getContext('2d')
+      context?.clearRect(0, 0, canvas.width, canvas.height)
+      context?.drawImage(image, 0, 0, canvas.width, canvas.height)
+      saveBrushCanvas()
+    }
+    image.src = dataUrl
+  }
+
+  const currentCanvasSnapshot = (): string | null => editCanvasRef.current?.toDataURL('image/png') || null
+
+  const undoBrush = (): void => {
+    const snapshot = brushHistoryRef.current.pop()
+    const current = currentCanvasSnapshot()
+    if (!snapshot || !current) return
+    brushRedoRef.current = [...brushRedoRef.current.slice(-29), current]
+    setHistoryVersion((version) => version + 1)
+    restoreBrushSnapshot(snapshot)
+  }
+
+  const redoBrush = (): void => {
+    const snapshot = brushRedoRef.current.pop()
+    const current = currentCanvasSnapshot()
+    if (!snapshot || !current) return
+    brushHistoryRef.current = [...brushHistoryRef.current.slice(-29), current]
+    setHistoryVersion((version) => version + 1)
+    restoreBrushSnapshot(snapshot)
+  }
+
+  const resetBrush = (): void => {
+    const canvas = editCanvasRef.current
+    const refined = refinedImageDataRef.current
+    if (!result || !canvas || !refined) return
+    brushHistoryRef.current = []
+    brushRedoRef.current = []
+    manualAlphaDeltaRef.current = null
+    canvas.getContext('2d', { willReadFrequently: true })?.putImageData(refined, 0, 0)
+    setHistoryVersion((version) => version + 1)
+    onSaveEdit(canvas.toDataURL('image/png'))
+  }
+
+  const resetEdgeRefinement = (): void => {
+    setEdgeOffset(0)
+    setEdgeSmooth(1)
+    setEdgeFeather(0.5)
+    setDewhite(0)
+    setColorCleanup(false)
+    setColorCleanupStrength(50)
+  }
+
+  const restoreModelResult = (): void => {
+    const canvas = editCanvasRef.current
+    const model = modelImageDataRef.current
+    if (!canvas || !model) return
+    manualAlphaDeltaRef.current = null
+    refinedImageDataRef.current = model
+    brushHistoryRef.current = []
+    brushRedoRef.current = []
+    setHistoryVersion((version) => version + 1)
+    resetEdgeRefinement()
+    canvas.getContext('2d', { willReadFrequently: true })?.putImageData(model, 0, 0)
+    onSaveEdit(canvas.toDataURL('image/png'))
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target?.matches('input, select, textarea')) return
+      if (event.code === 'Space') {
+        event.preventDefault()
+        setSpacePressed(true)
+        return
+      }
+      if (!result) return
+      if (event.key.toLowerCase() === 'x') {
+        event.preventDefault()
+        setBrushMode((current) => (current === 'erase' ? 'restore' : 'erase'))
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) redoBrush()
+        else undoBrush()
+      }
+      if (event.key === '[') setBrushSize((current) => Math.max(4, current - (event.shiftKey ? 20 : 4)))
+      if (event.key === ']') setBrushSize((current) => Math.min(240, current + (event.shiftKey ? 20 : 4)))
+      if ((event.ctrlKey || event.metaKey) && event.key === '0') {
+        event.preventDefault()
+        setZoom(100)
+        setCanvasPan({ x: 0, y: 0 })
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === '1') {
+        event.preventDefault()
+        setZoom(100)
+        setCanvasPan({ x: 0, y: 0 })
+      }
+      if ((event.ctrlKey || event.metaKey) && (event.key === '+' || event.key === '=')) {
+        event.preventDefault()
+        setZoom((current) => Math.min(300, current + 10))
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === '-') {
+        event.preventDefault()
+        setZoom((current) => Math.max(25, current - 10))
+      }
+    }
+    const handleKeyUp = (event: KeyboardEvent): void => {
+      if (event.code === 'Space') setSpacePressed(false)
+    }
+    const handleBlur = (): void => {
+      setSpacePressed(false)
+      setCanvasPanning(false)
+      canvasPanGestureRef.current = null
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', handleBlur)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [result, historyVersion])
+
+  const edgeControlsDisabled = !result || busy || refining
+  const activeDivider = brushMode === 'none' ? divider : 0
+  const resultBackgroundClass =
+    previewBackground === 'checker'
+      ? 'stitch-checkerboard'
+      : previewBackground === 'white'
+        ? 'stitch-result-white'
+        : previewBackground === 'black'
+          ? 'stitch-result-black'
+          : 'stitch-result-custom'
+  const previewBackgroundStyle =
+    previewBackground === 'custom' ? ({ '--preview-background': customBackground } as Record<string, string>) : undefined
+
+  return (
+    <div className="background-stitch-scope">
+      <main className="background-removal-stitch bg-surface text-on-surface h-screen flex flex-col overflow-hidden font-body-md text-body-md">
+      <header className="drag-region flex justify-between items-center px-gutter h-16 w-full bg-surface border-b border-surface-variant flex-shrink-0 z-10">
+        <div className="flex items-center gap-4 min-w-0">
+          <button className="no-drag w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant" onClick={onBack} type="button" title="返回工具箱">
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-headline-md font-headline-md font-semibold text-primary whitespace-nowrap">背景移除</h1>
+          <div className="h-4 w-px bg-outline-variant mx-2" />
+          {item ? (
+            <div className="flex items-center gap-3 text-on-surface-variant min-w-0">
+              <span className="text-label-lg font-label-lg truncate max-w-60">{item.fileName}</span>
+              <span className="text-label-sm font-label-sm px-2 py-0.5 bg-surface-container-low rounded whitespace-nowrap">{item.width}x{item.height}</span>
+              <span className="text-label-sm font-label-sm text-on-surface-variant whitespace-nowrap">{formatBytes(item.size)}</span>
+              <div className="flex items-center gap-1.5 ml-2 whitespace-nowrap">
+                <div className={`w-2 h-2 rounded-full ${runtime?.ready ? 'bg-emerald-500' : 'bg-outline'}`} />
+                <span className="text-label-sm font-label-sm">{runtime?.ready ? 'Local GPU' : '本地环境'}</span>
+              </div>
+            </div>
+          ) : (
+            <span className="text-label-sm font-label-sm text-on-surface-variant">选择 PNG、JPG 或 WebP 图片</span>
+          )}
+        </div>
+        <div className="no-drag flex items-center gap-2">
+          {item && <button className="background-clear-button" disabled={busy} onClick={onClear} type="button" title="清除当前画板"><Trash2 size={16} />清空画板</button>}
+          <button className="px-4 py-2 bg-surface-container-low text-on-surface rounded hover:bg-surface-container-high transition-colors text-label-lg font-label-lg font-medium flex items-center gap-2" onClick={onPick} type="button">
+            <ImagePlus size={18} />
+            {item ? '更换图片' : '选择图片'}
+          </button>
+        </div>
+      </header>
+
+      {runtime && !runtime.ready && (
+        <div className="absolute inset-x-0 top-16 bottom-0 z-50 bg-surface-container-lowest/95 backdrop-blur-sm flex items-center justify-center p-8">
+          <section className="w-full max-w-xl bg-surface rounded-2xl border border-surface-variant shadow-xl p-7 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-surface-container-low flex items-center justify-center text-primary flex-shrink-0">
+                <Database size={23} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-title-lg font-title-lg font-semibold text-on-surface">安装本地 AI 抠图环境</h2>
+                <p className="mt-1 text-body-md font-body-md text-on-surface-variant">首次使用时自动下载独立 Python、PyTorch 和 BiRefNet 开源模型。它们与软件本体分开保存，更新波利助手不会重复下载或删除。</p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-surface-container-low px-4 py-3 space-y-1">
+              <div className="text-label-sm font-label-sm text-on-surface-variant">安装位置</div>
+              <div className="text-body-md font-body-md text-on-surface break-all">{runtime.installDir}</div>
+            </div>
+            {busy && (
+              <div className="space-y-2">
+                <div className="flex justify-between gap-4 text-label-lg font-label-lg">
+                  <span className="truncate">{progress.status || '正在准备安装'}</span>
+                  <span className="whitespace-nowrap">{progress.determinate ? `${Math.round(progress.percent)}%` : ''}{progress.speedBytesPerSecond ? ` · ${formatBytes(progress.speedBytesPerSecond)}/s` : ''}</span>
+                </div>
+                <div className={`h-2 bg-surface-variant rounded-full overflow-hidden ${progress.determinate ? '' : 'stitch-indeterminate'}`}>
+                  <div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${progress.determinate ? progress.percent : 0}%` }} />
+                </div>
+              </div>
+            )}
+            {!busy && progress.phase === 'error' && <p className="text-body-md font-body-md text-error">{progress.status}</p>}
+            <div className="flex justify-end gap-3">
+              <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(true)} type="button"><FolderOpen size={17} />更换位置</button>
+              <button className="px-5 py-2.5 rounded-lg bg-primary text-on-primary text-label-lg font-label-lg hover:bg-primary/90 disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(false)} type="button">{busy ? <Loader2 className="spin" size={18} /> : <ArrowDownToLine size={18} />}{busy ? '正在安装' : '开始安装'}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      <div className="flex-1 flex overflow-hidden relative min-h-0">
+        <section className="flex-1 relative overflow-hidden bg-surface-container-lowest p-margin-md flex flex-col items-center justify-center min-w-0">
+          {item ? (
+            <div
+              className={`background-canvas-surface relative w-full h-full rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-surface-variant overflow-hidden flex items-center justify-center group/canvas ${spacePressed ? (canvasPanning ? 'canvas-is-panning' : 'canvas-pan-ready') : 'cursor-crosshair'} ${result ? resultBackgroundClass : 'bg-surface-container-low'}`}
+              style={result ? previewBackgroundStyle : undefined}
+              onWheel={(event) => {
+                if (!(event.ctrlKey || event.metaKey)) return
+                event.preventDefault()
+                const direction = event.deltaY < 0 ? 10 : -10
+                setZoom((current) => Math.min(300, Math.max(25, current + direction)))
+              }}
+              onPointerDownCapture={(event) => {
+                if (!spacePressed || event.button !== 0) return
+                event.preventDefault()
+                event.stopPropagation()
+                event.currentTarget.setPointerCapture(event.pointerId)
+                canvasPanGestureRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+                setCanvasPanning(true)
+              }}
+              onPointerMove={(event) => {
+                const gesture = canvasPanGestureRef.current
+                if (!gesture || gesture.pointerId !== event.pointerId) return
+                const deltaX = event.clientX - gesture.x
+                const deltaY = event.clientY - gesture.y
+                canvasPanGestureRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+                setCanvasPan((current) => ({ x: current.x + deltaX, y: current.y + deltaY }))
+              }}
+              onPointerUp={(event) => {
+                if (canvasPanGestureRef.current?.pointerId !== event.pointerId) return
+                canvasPanGestureRef.current = null
+                setCanvasPanning(false)
+              }}
+              onPointerCancel={() => {
+                canvasPanGestureRef.current = null
+                setCanvasPanning(false)
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                if (result) onCopyResult(editCanvasRef.current?.toDataURL('image/png'))
+              }}
+            >
+              <div className="absolute top-4 left-4 z-20 px-3 py-1.5 bg-surface/90 backdrop-blur-sm rounded-lg shadow-sm border border-surface-variant flex items-center gap-2">
+                <span className="text-label-lg font-label-lg font-medium">抠图前</span>
+              </div>
+              <div className="absolute top-4 right-4 z-20 px-3 py-1.5 bg-surface/90 backdrop-blur-sm rounded-lg shadow-sm border border-surface-variant flex items-center gap-2">
+                <span className="text-label-lg font-label-lg font-medium">抠图后</span>
+              </div>
+
+              <div
+                ref={stageRef}
+                className={`background-image-stage relative transform transition-transform duration-200 ${result ? 'with-toolbar' : ''}`}
+              >
+                <div className="absolute inset-0">
+                  {result ? (
+                    <canvas
+                      ref={editCanvasRef}
+                      className="background-layer-media block max-w-none max-h-none pointer-events-none"
+                      style={{ width: `${fitSize.width * zoom / 100}px`, height: `${fitSize.height * zoom / 100}px`, left: `calc(50% + ${canvasPan.x}px)`, top: `calc(50% + ${canvasPan.y}px)` }}
+                      aria-label="抠图后精修画布"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-container-low text-on-surface-variant text-label-lg">
+                      {busy ? <Loader2 className="spin" size={24} /> : <Eraser size={24} />}
+                      <span>{busy ? progress.status || '正在抠图' : '点击右下角开始抠图'}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="absolute inset-0 overflow-hidden border-r-2 border-white" style={{ clipPath: `inset(0 ${100 - activeDivider}% 0 0)` }}>
+                  <img
+                    className="background-layer-media block max-w-none max-h-none pointer-events-none"
+                    src={item.dataUrl}
+                    style={{ width: `${fitSize.width * zoom / 100}px`, height: `${fitSize.height * zoom / 100}px`, left: `calc(50% + ${canvasPan.x}px)`, top: `calc(50% + ${canvasPan.y}px)` }}
+                    alt="抠图前"
+                  />
+                </div>
+
+                {result && canvasReady && brushMode !== 'none' && (
+                  <div
+                    className="stitch-brush-surface"
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return
+                      const point = brushPoint(event.clientX, event.clientY)
+                      const canvas = editCanvasRef.current
+                      if (!point || !canvas) return
+                      event.preventDefault()
+                      event.currentTarget.setPointerCapture(event.pointerId)
+                      brushHistoryRef.current = [...brushHistoryRef.current.slice(-29), canvas.toDataURL('image/png')]
+                      brushRedoRef.current = []
+                      setHistoryVersion((version) => version + 1)
+                      brushStrokeRef.current = { pointerId: event.pointerId, ...point }
+                      stampBrush(point.x, point.y)
+                      updateBrushCursor(event.clientX, event.clientY)
+                    }}
+                    onPointerMove={(event) => {
+                      updateBrushCursor(event.clientX, event.clientY)
+                      const stroke = brushStrokeRef.current
+                      if (!stroke || stroke.pointerId !== event.pointerId) return
+                      const point = brushPoint(event.clientX, event.clientY)
+                      if (!point) return
+                      paintBrushLine(stroke.x, stroke.y, point.x, point.y)
+                      brushStrokeRef.current = { pointerId: stroke.pointerId, ...point }
+                    }}
+                    onPointerUp={(event) => {
+                      const stroke = brushStrokeRef.current
+                      if (!stroke || stroke.pointerId !== event.pointerId) return
+                      brushStrokeRef.current = null
+                      saveBrushCanvas()
+                    }}
+                    onPointerCancel={() => { brushStrokeRef.current = null }}
+                    onPointerLeave={() => { if (!brushStrokeRef.current) setBrushCursor(null) }}
+                  />
+                )}
+
+                {brushMode !== 'none' && brushCursor && (
+                  <span className="stitch-brush-cursor" style={{ left: `${brushCursor.x}px`, top: `${brushCursor.y}px`, width: `${brushCursor.size}px`, height: `${brushCursor.size}px` }} />
+                )}
+
+                {brushMode === 'none' && (
+                  <div
+                    className="absolute inset-y-0 w-8 -ml-4 flex items-center justify-center cursor-ew-resize z-10 group"
+                    style={{ left: `${divider}%` }}
+                    onPointerDown={(event) => {
+                      event.currentTarget.setPointerCapture(event.pointerId)
+                      moveDivider(event.clientX)
+                    }}
+                    onPointerMove={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) moveDivider(event.clientX)
+                    }}
+                  >
+                    <div className="w-0.5 h-full bg-white group-hover:bg-primary transition-colors shadow-[0_0_4px_rgba(0,0,0,0.2)]" />
+                    <div className="absolute w-8 h-8 bg-white rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-surface-variant flex items-center justify-center text-on-surface-variant"><span className="text-base">↔</span></div>
+                  </div>
+                )}
+
+                {refining && <div className="stitch-refining-overlay"><Loader2 className="spin" size={16} />正在更新精修预览</div>}
+              </div>
+
+              {result && <div className="absolute bottom-6 right-6 z-20 px-4 py-2 bg-inverse-surface/80 text-inverse-on-surface rounded-lg text-label-lg font-label-lg backdrop-blur-sm pointer-events-none opacity-80">右键复制透明 PNG</div>}
+
+              {result && (
+                <div className="background-brush-toolbar">
+                  <div className="flex items-center gap-2 bg-surface-container-low rounded-lg p-1">
+                    <button className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${brushMode === 'restore' ? 'bg-surface shadow-sm text-primary' : 'hover:bg-surface-variant text-on-surface-variant'}`} onClick={() => setBrushMode((mode) => mode === 'restore' ? 'none' : 'restore')} type="button" title="补回 (X)"><Paintbrush size={20} /></button>
+                    <button className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${brushMode === 'erase' ? 'bg-surface shadow-sm text-primary' : 'hover:bg-surface-variant text-on-surface-variant'}`} onClick={() => setBrushMode((mode) => mode === 'erase' ? 'none' : 'erase')} type="button" title="擦除 (X)"><Eraser size={20} /></button>
+                  </div>
+                  <div className="w-px h-6 bg-outline-variant" />
+                  <div className="flex items-center gap-3"><span className="text-label-sm font-label-sm text-on-surface-variant w-8">大小</span><input className="w-20 accent-primary h-1.5 bg-surface-variant rounded-full appearance-none" type="range" min="4" max="240" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} /><span className="text-label-sm font-label-sm text-on-surface-variant w-8 text-right">{brushSize}px</span></div>
+                  <div className="flex items-center gap-3"><span className="text-label-sm font-label-sm text-on-surface-variant w-10">柔和度</span><input className="w-20 accent-primary h-1.5 bg-surface-variant rounded-full appearance-none" type="range" min="0" max="100" value={brushSoftness} onChange={(event) => setBrushSoftness(Number(event.target.value))} /><span className="text-label-sm font-label-sm text-on-surface-variant w-8 text-right">{brushSoftness}%</span></div>
+                  <div className="w-px h-6 bg-outline-variant" />
+                  <div className="flex items-center gap-1">
+                    <button className="w-7 h-7 rounded hover:bg-surface-container-low text-on-surface-variant flex items-center justify-center transition-colors disabled:opacity-30" disabled={!brushHistoryRef.current.length} onClick={undoBrush} type="button" title="撤销 (Ctrl+Z)"><Undo2 size={18} /></button>
+                    <button className="w-7 h-7 rounded hover:bg-surface-container-low text-on-surface-variant flex items-center justify-center transition-colors disabled:opacity-30" disabled={!brushRedoRef.current.length} onClick={redoBrush} type="button" title="重做 (Ctrl+Shift+Z)"><Redo2 size={18} /></button>
+                    <button className="w-7 h-7 rounded hover:bg-surface-container-low text-on-surface-variant flex items-center justify-center transition-colors" onClick={resetBrush} type="button" title="重置画笔"><RotateCcw size={18} /></button>
+                  </div>
+                  <div className="w-px h-6 bg-outline-variant mx-1" />
+                  <div className="flex items-center gap-1">
+                    <button className="w-7 h-7 rounded hover:bg-surface-container-low text-on-surface-variant flex items-center justify-center transition-colors" onClick={() => setZoom((value) => Math.max(25, value - 10))} type="button" title="缩小">-</button>
+                    <span className="text-label-sm font-label-sm text-on-surface-variant w-10 text-center">{zoom}%</span>
+                    <button className="w-7 h-7 rounded hover:bg-surface-container-low text-on-surface-variant flex items-center justify-center transition-colors" onClick={() => setZoom((value) => Math.min(300, value + 10))} type="button" title="放大">+</button>
+                    <button className="w-7 h-7 rounded hover:bg-surface-container-low text-on-surface-variant flex items-center justify-center transition-colors" onClick={() => { setZoom(100); setCanvasPan({ x: 0, y: 0 }) }} type="button" title="适合画布"><Maximize2 size={18} /></button>
+                  </div>
+                  <div className="w-px h-6 bg-outline-variant mx-1" />
+                  <div className="flex items-center gap-1 bg-surface-container-low rounded-lg p-1">
+                    <button className={`w-6 h-6 rounded border stitch-checkerboard ${previewBackground === 'checker' ? 'ring-2 ring-outline' : 'border-surface-variant'}`} onClick={() => setPreviewBackground('checker')} type="button" title="透明棋盘格" />
+                    <button className={`w-6 h-6 rounded border bg-white ${previewBackground === 'white' ? 'ring-2 ring-outline' : 'border-surface-variant'}`} onClick={() => setPreviewBackground('white')} type="button" title="白色背景" />
+                    <button className={`w-6 h-6 rounded border bg-black ${previewBackground === 'black' ? 'ring-2 ring-outline' : 'border-surface-variant'}`} onClick={() => setPreviewBackground('black')} type="button" title="黑色背景" />
+                    <label className={`stitch-custom-color w-6 h-6 rounded border flex items-center justify-center cursor-pointer ${previewBackground === 'custom' ? 'ring-2 ring-outline' : 'border-surface-variant'}`} title="自定义颜色"><input type="color" value={customBackground} onChange={(event) => { setCustomBackground(event.target.value); setPreviewBackground('custom') }} /></label>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="relative w-full h-full rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-surface-variant overflow-hidden flex items-center justify-center bg-surface-container-lowest">
+              <button className="w-full h-full max-w-[800px] max-h-[600px] rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex flex-col items-center justify-center gap-2 text-on-surface-variant" onClick={onPick} type="button">
+                <ImagePlus size={34} />
+                <strong className="text-body-lg font-semibold">拖入或选择一张图片</strong>
+                <span className="text-label-lg">支持 PNG、JPG、WebP，图片仅在本机处理。</span>
+              </button>
+            </div>
+          )}
+        </section>
+
+        <aside className={`${edgePanelCollapsed ? 'w-12' : 'w-72'} bg-surface border-l border-surface-variant flex flex-col flex-shrink-0 transition-[width] duration-200`}>
+          <div className={`h-12 flex items-center ${edgePanelCollapsed ? 'justify-center px-0' : 'justify-between px-4'} border-b border-surface-variant`}>
+            {!edgePanelCollapsed && <h2 className="text-body-lg font-body-lg font-semibold text-on-surface">边缘精修</h2>}
+            <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-container-low text-on-surface-variant transition-colors" onClick={() => setEdgePanelCollapsed((current) => !current)} type="button" title={edgePanelCollapsed ? '展开面板' : '折叠面板'}>{edgePanelCollapsed ? <ChevronsLeft size={20} /> : <ChevronsRight size={20} />}</button>
+          </div>
+          {!edgePanelCollapsed && (
+            <>
+              <div className={`flex-1 overflow-y-auto stitch-scrollbar p-4 space-y-6 ${edgeControlsDisabled ? 'pointer-events-none' : ''}`}>
+                <StitchRefineSlider label="边缘偏移" value={edgeOffset} display={`${edgeOffset}px`} min={-20} max={20} step={1} minLabel="-20" maxLabel="+20" disabled={edgeControlsDisabled} onChange={setEdgeOffset} onReset={() => setEdgeOffset(0)} />
+                <StitchRefineSlider label="边缘平滑" value={edgeSmooth} display={`${edgeSmooth}`} min={0} max={20} step={1} minLabel="0" maxLabel="20" disabled={edgeControlsDisabled} onChange={setEdgeSmooth} onReset={() => setEdgeSmooth(1)} />
+                <StitchRefineSlider label="羽化" value={edgeFeather} display={`${edgeFeather}px`} min={0} max={20} step={0.1} minLabel="0" maxLabel="20" disabled={edgeControlsDisabled} onChange={setEdgeFeather} onReset={() => setEdgeFeather(0.5)} />
+                <StitchRefineSlider label="去白边" value={dewhite} display={`${dewhite}%`} min={0} max={100} step={1} minLabel="0%" maxLabel="100%" disabled={edgeControlsDisabled} onChange={setDewhite} onReset={() => setDewhite(0)} />
+                <div className="space-y-3 pt-2 border-t border-surface-variant">
+                  <div className="flex justify-between items-center"><label className="text-label-lg font-label-lg text-on-surface">颜色净化</label><button className={`w-8 h-4 rounded-full relative transition-colors focus:outline-none ${colorCleanup ? 'bg-primary' : 'bg-surface-variant'}`} disabled={edgeControlsDisabled} onClick={() => setColorCleanup((current) => !current)} role="switch" aria-checked={colorCleanup} type="button"><span className={`w-3 h-3 rounded-full absolute top-0.5 transition-transform ${colorCleanup ? 'bg-white translate-x-4' : 'bg-outline left-0.5'}`} /></button></div>
+                  <div className={`space-y-3 ${colorCleanup ? '' : 'opacity-50 pointer-events-none'}`}><StitchRefineSlider label="强度" value={colorCleanupStrength} display={`${colorCleanupStrength}%`} min={0} max={100} step={1} disabled={edgeControlsDisabled || !colorCleanup} onChange={setColorCleanupStrength} onReset={() => setColorCleanupStrength(50)} compact /></div>
+                </div>
+              </div>
+              <div className="p-4 border-t border-surface-variant bg-surface"><button className="w-full py-2 border border-surface-variant rounded-lg text-label-lg font-label-lg text-on-surface hover:bg-surface-container-low transition-colors disabled:opacity-40" onClick={restoreModelResult} disabled={edgeControlsDisabled} type="button">恢复模型原始结果</button></div>
+            </>
+          )}
+        </aside>
+      </div>
+
+      <footer className="h-16 bg-surface border-t border-surface-variant flex items-center justify-between px-gutter flex-shrink-0 z-10">
+        <div className="flex items-center gap-4 flex-1 min-w-0"><span className="text-body-md font-body-md text-on-surface truncate">状态：{refining ? '正在更新精修预览...' : status || '等待添加图片'}</span><span className="text-label-sm font-label-sm text-on-surface-variant whitespace-nowrap">{runtime?.modelDownloaded ? '模型已加载' : '首次使用需下载约 444 MB 模型'}</span></div>
+        <div className="flex-1 flex justify-center items-center">
+          {(busy || refining) && <div className={`w-64 h-1.5 bg-surface-variant rounded-full overflow-hidden ${progress.determinate && !refining ? '' : 'stitch-indeterminate'}`}><div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${refining ? 45 : progress.determinate ? progress.percent : 0}%` }} /></div>}
+        </div>
+        <div className="flex items-center gap-3 flex-1 justify-end">
+          <button className="px-5 py-2.5 bg-surface-container-low text-on-surface rounded-lg hover:bg-surface-container-high transition-colors text-label-lg font-label-lg font-medium disabled:opacity-40" onClick={onShowOutput} disabled={!result || refining} type="button">查看文件</button>
+          <button className="px-5 py-2.5 bg-surface-container-low text-on-surface rounded-lg hover:bg-surface-container-high transition-colors text-label-lg font-label-lg font-medium disabled:opacity-40" onClick={() => onCopyResult(editCanvasRef.current?.toDataURL('image/png'))} disabled={!result || refining} type="button">复制</button>
+          <button className="px-5 py-2.5 bg-primary text-on-primary rounded-lg hover:bg-primary/90 transition-colors text-label-lg font-label-lg font-medium flex items-center gap-2 shadow-sm disabled:opacity-40" disabled={!item || busy || !runtime?.ready} onClick={onRun} type="button">{busy ? <Loader2 className="spin" size={18} /> : <WandSparkles size={18} />}{busy ? '正在抠图' : result ? '重新抠图' : '开始抠图'}</button>
+        </div>
+      </footer>
+      </main>
+    </div>
+  )
+}
+
+function StitchRefineSlider({
+  label,
+  value,
+  display,
+  min,
+  max,
+  step,
+  minLabel,
+  maxLabel,
+  disabled,
+  compact = false,
+  onChange,
+  onReset
+}: {
+  label: string
+  value: number
+  display: string
+  min: number
+  max: number
+  step: number
+  minLabel?: string
+  maxLabel?: string
+  disabled: boolean
+  compact?: boolean
+  onChange: (value: number) => void
+  onReset: () => void
+}): JSX.Element {
+  return (
+    <div className={compact ? 'space-y-2' : 'space-y-3'}>
+      <div className="flex justify-between items-center">
+        <label className={compact ? 'text-label-sm font-label-sm text-on-surface-variant' : 'text-label-lg font-label-lg text-on-surface'}>{label}</label>
+        <span
+          className="text-label-sm font-label-sm text-on-surface-variant bg-surface-container-low px-1.5 py-0.5 rounded cursor-pointer"
+          onDoubleClick={onReset}
+          title="双击重置"
+        >
+          {display}
+        </span>
+      </div>
+      <input
+        className="w-full accent-primary h-1.5 bg-surface-variant rounded-full appearance-none"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      {(minLabel || maxLabel) && (
+        <div className="flex justify-between text-label-sm text-outline-variant">
+          <span>{minLabel}</span>
+          <span>{maxLabel}</span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -2395,6 +3470,10 @@ function CompressionWorkbenchReference({
 }): JSX.Element {
   const [comparePosition, setComparePosition] = useState(50)
   const [viewScale, setViewScale] = useState(1)
+  const [viewPan, setViewPan] = useState({ x: 0, y: 0 })
+  const [spacePressed, setSpacePressed] = useState(false)
+  const [viewPanning, setViewPanning] = useState(false)
+  const viewPanGestureRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
   const defaultOptions = config.compression.lastUsedOptions || defaultCompressionOptions
   const activeOptions = selectedItem?.options || defaultOptions
   const completed = items.filter((item) => item.status === 'completed')
@@ -2411,7 +3490,7 @@ function CompressionWorkbenchReference({
   const saving = outputTotal ? compressionSavings(originalTotal, outputTotal) : '-'
   const canRun = Boolean(items.length && !busy)
   const totalProgress = items.length ? Math.round((finished / items.length) * 100) : 0
-  const imageViewStyle = { transform: `scale(${viewScale})`, transformOrigin: 'center center' }
+  const imageViewStyle = { transform: `translate(${viewPan.x}px, ${viewPan.y}px) scale(${viewScale})`, transformOrigin: 'center center' }
 
   function zoomBy(delta: number): void {
     setViewScale((current) => Math.min(6, Math.max(0.1, Number((current + delta).toFixed(2)))))
@@ -2420,6 +3499,7 @@ function CompressionWorkbenchReference({
   function resetView(): void {
     setComparePosition(50)
     setViewScale(1)
+    setViewPan({ x: 0, y: 0 })
   }
 
   function centerView(): void {
@@ -2429,10 +3509,18 @@ function CompressionWorkbenchReference({
   useEffect(() => {
     setComparePosition(50)
     setViewScale(1)
+    setViewPan({ x: 0, y: 0 })
   }, [selectedItem?.id])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
+      const target = event.target as HTMLElement | null
+      if (target?.matches('input, select, textarea')) return
+      if (event.code === 'Space') {
+        event.preventDefault()
+        setSpacePressed(true)
+        return
+      }
       const combo = event.ctrlKey || event.metaKey
       if (!combo) return
       if (event.key === '+' || event.key === '=') {
@@ -2447,10 +3535,25 @@ function CompressionWorkbenchReference({
       } else if (event.key === '1') {
         event.preventDefault()
         setViewScale(1)
+        setViewPan({ x: 0, y: 0 })
       }
     }
+    function onKeyUp(event: KeyboardEvent): void {
+      if (event.code === 'Space') setSpacePressed(false)
+    }
+    function onBlur(): void {
+      setSpacePressed(false)
+      setViewPanning(false)
+      viewPanGestureRef.current = null
+    }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
   }, [])
 
   return (
@@ -2514,7 +3617,39 @@ function CompressionWorkbenchReference({
         </div>
       </aside>
 
-      <section className="compression-ref-canvas">
+      <section
+        className={`compression-ref-canvas ${spacePressed ? (viewPanning ? 'canvas-is-panning' : 'canvas-pan-ready') : ''}`}
+        onWheel={(event) => {
+          if (!(event.ctrlKey || event.metaKey) || !selectedItem) return
+          event.preventDefault()
+          zoomBy(event.deltaY < 0 ? 0.1 : -0.1)
+        }}
+        onPointerDownCapture={(event) => {
+          if (!spacePressed || !selectedItem || event.button !== 0) return
+          event.preventDefault()
+          event.stopPropagation()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          viewPanGestureRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+          setViewPanning(true)
+        }}
+        onPointerMove={(event) => {
+          const gesture = viewPanGestureRef.current
+          if (!gesture || gesture.pointerId !== event.pointerId) return
+          const deltaX = event.clientX - gesture.x
+          const deltaY = event.clientY - gesture.y
+          viewPanGestureRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+          setViewPan((current) => ({ x: current.x + deltaX, y: current.y + deltaY }))
+        }}
+        onPointerUp={(event) => {
+          if (viewPanGestureRef.current?.pointerId !== event.pointerId) return
+          viewPanGestureRef.current = null
+          setViewPanning(false)
+        }}
+        onPointerCancel={() => {
+          viewPanGestureRef.current = null
+          setViewPanning(false)
+        }}
+      >
         {selectedItem && (
           <div className="compression-ref-file-chip">
             <strong>{selectedItem.fileName}</strong>
@@ -2564,8 +3699,8 @@ function CompressionWorkbenchReference({
               <span>{Math.round(viewScale * 100)}%</span>
               <button onClick={() => zoomBy(0.1)} type="button" title="放大 Ctrl++">+</button>
               <button onClick={resetView} type="button" title="还原 Ctrl+0">↻</button>
-              <button onClick={centerView} type="button" title="居中分割线">○</button>
-              <button onClick={() => setViewScale(1)} type="button" title="适合画布 Ctrl+1">▦</button>
+              <button onClick={centerView} type="button" title="居中分割线">◎</button>
+              <button onClick={() => { setViewScale(1); setViewPan({ x: 0, y: 0 }) }} type="button" title="适合画布 Ctrl+1">▣</button>
             </div>
             <div className="compression-ref-saving">
               <strong>{selectedItem.preview ? compressionSavings(selectedItem.size, selectedItem.preview.size) : '↓ 0%'}</strong>
@@ -2779,7 +3914,7 @@ function CompressionOptionsFormReference({
             />
           </label>
           <button className="restore-default-btn" onClick={() => onChange(defaultCompressionOptions)} type="button">
-            ↻ 恢复默认
+            恢复默认
           </button>
         </div>
       </details>
@@ -3397,7 +4532,7 @@ function CompressionWorkbench({
             </strong>
             <small>
               {items.length
-                ? `原图 ${formatBytes(originalTotal)}，预估/输出 ${formatBytes(outputTotal)}`
+                ? `原图 ${formatBytes(originalTotal)}，预计输出 ${formatBytes(outputTotal)}`
                 : '拖入图片或点击左侧按钮添加到队列'}
             </small>
           </div>
@@ -3716,7 +4851,7 @@ function SettingsPanel({
                 />
                 <span>启动时自动检查更新</span>
               </label>
-              <p className="settings-note">{updateStatus || '内部更新源配置后，打包版本会自动检查最新安装包。'}</p>
+              <p className="settings-note">{updateStatus || '配置内部更新源后，打包版本会自动检查最新安装包。'}</p>
             </div>
           </section>
 
@@ -3975,13 +5110,25 @@ function ImageQueue({
 
 function queueSummary(item: QueueItem, ready: boolean): string {
   if (item.status === 'failed') return '处理失败，点击查看'
-  if (item.status === 'completed') return item.error ? '已完成，有提醒' : '已完成'
+  if (item.status === 'completed') return item.error ? '已完成，有提示' : '已完成'
   if (item.outputPath) return '本地已生成'
   return ready ? '已准备' : statusText(item.status)
 }
 
 function QueueDetailDialog({ item, onClose }: { item: QueueItem; onClose: () => void }): JSX.Element {
   const isSuccess = item.status === 'completed'
+  const [folderError, setFolderError] = useState('')
+
+  async function openOutputFolder(): Promise<void> {
+    if (!item.outputPath) return
+    setFolderError('')
+    try {
+      await window.assetUploader.showItemInFolder(item.outputPath)
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   return (
     <div className="detail-backdrop" onClick={onClose}>
       <section className="queue-detail" onClick={(event) => event.stopPropagation()}>
@@ -4003,9 +5150,16 @@ function QueueDetailDialog({ item, onClose }: { item: QueueItem; onClose: () => 
             <dd>{queueSummary(item, isSuccess)}</dd>
           </div>
           {item.outputPath && (
-            <div>
-              <dt>本地成品</dt>
+            <div className="queue-detail-output">
+              <dt>
+                <span>本地成品</span>
+                <button onClick={() => void openOutputFolder()} type="button" title="打开成品文件夹">
+                  <FolderOpen size={14} />
+                  打开
+                </button>
+              </dt>
               <dd>{item.outputPath}</dd>
+              {folderError && <dd className="queue-detail-folder-error">{folderError}</dd>}
             </div>
           )}
           {item.recordId && (

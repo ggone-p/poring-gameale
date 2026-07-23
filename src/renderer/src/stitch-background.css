@@ -1,0 +1,304 @@
+@tailwind components;
+@tailwind utilities;
+
+.background-removal-shell > .titlebar { display: none; }
+
+.background-removal-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  clip-path: inset(0 round 12px);
+  background: #faf9fe;
+  box-shadow: 0 22px 56px rgba(28, 28, 32, 0.18);
+}
+
+.background-removal-shell .background-stitch-scope {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  font-family: Inter, "Microsoft YaHei UI", "Segoe UI", sans-serif !important;
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: 0 !important;
+}
+
+.background-stitch-scope,
+.background-stitch-scope *,
+.background-stitch-scope *::before,
+.background-stitch-scope *::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
+}
+
+.background-stitch-scope :where(button, input, select, textarea) {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.background-stitch-scope :where(button, select) {
+  text-transform: none;
+}
+
+.background-stitch-scope :where(button, [role="button"]) {
+  cursor: pointer;
+}
+
+.background-stitch-scope :where(button:disabled, [aria-disabled="true"]) {
+  cursor: default;
+}
+
+.background-stitch-scope :where(button) {
+  background-color: transparent;
+  background-image: none;
+}
+
+.background-stitch-scope :where(img, svg, video, canvas) {
+  display: block;
+  vertical-align: middle;
+}
+
+.background-stitch-scope :where(input[type="range"]) {
+  accent-color: #000000;
+}
+
+.background-removal-shell .background-removal-stitch {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-radius: inherit;
+}
+
+.background-stitch-scope .background-removal-stitch > header,
+.background-stitch-scope .background-removal-stitch > footer {
+  height: 56px !important;
+}
+
+.background-stitch-scope .background-clear-button {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: #5f6266;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.background-stitch-scope .background-clear-button:hover {
+  background: #f0eff4;
+  color: #1a1b1f;
+}
+
+.background-stitch-scope .background-clear-button:disabled {
+  opacity: 0.4;
+}
+
+.background-stitch-scope .background-canvas-surface {
+  background-attachment: local;
+}
+
+.background-stitch-scope .background-image-stage {
+  width: min(800px, 100%);
+  height: min(600px, 100%);
+  flex: 0 1 auto;
+  background: transparent;
+}
+
+.background-stitch-scope .background-image-stage.with-toolbar {
+  height: min(600px, calc(100% - 76px));
+  margin-bottom: 60px;
+}
+
+.background-stitch-scope .background-layer-media {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) !important;
+  transform-origin: center;
+}
+
+.background-stitch-scope .background-brush-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 30;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 3px 6px 10px;
+  overflow: hidden;
+  border: 1px solid #e3e2e7;
+  border-radius: 10px;
+  background: #faf9fe;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.09);
+  transform: translateX(-50%);
+}
+
+@media (max-width: 1100px), (max-height: 760px) {
+  .background-stitch-scope .background-brush-toolbar {
+    gap: 5px;
+    padding: 5px 2px 5px 7px;
+  }
+
+  .background-stitch-scope .background-brush-toolbar > .w-px {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .background-stitch-scope .background-image-stage.with-toolbar {
+    height: min(600px, calc(100% - 70px));
+    margin-bottom: 54px;
+  }
+}
+
+.background-stitch-scope .canvas-pan-ready,
+.compression-ref-canvas.canvas-pan-ready {
+  cursor: grab !important;
+  user-select: none;
+}
+
+.background-stitch-scope .canvas-is-panning,
+.compression-ref-canvas.canvas-is-panning {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* Isolate the Stitch type scale from the legacy app-wide !important rules. */
+.background-stitch-scope .text-headline-md {
+  font-family: Inter, "Microsoft YaHei UI", "Segoe UI", sans-serif !important;
+  font-size: 16px !important;
+  line-height: 24px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.background-stitch-scope .text-body-lg {
+  font-size: 14px !important;
+  line-height: 20px !important;
+  letter-spacing: 0 !important;
+}
+
+.background-stitch-scope .text-body-md {
+  font-size: 13px !important;
+  line-height: 18px !important;
+  letter-spacing: 0 !important;
+}
+
+.background-stitch-scope .text-label-lg {
+  font-size: 12px !important;
+  line-height: 16px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+}
+
+.background-stitch-scope .text-label-sm {
+  font-size: 11px !important;
+  line-height: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.03em !important;
+}
+
+.background-stitch-scope button,
+.background-stitch-scope input,
+.background-stitch-scope select {
+  font-family: inherit !important;
+}
+
+.background-stitch-scope .stitch-checkerboard {
+  background-color: #f0f0f0;
+  background-image:
+    linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%, #e0e0e0),
+    linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%, #e0e0e0);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+.background-stitch-scope .stitch-result-white { background: #ffffff; }
+.background-stitch-scope .stitch-result-black { background: #111113; }
+.background-stitch-scope .stitch-result-custom { background: var(--preview-background, #35c98b); }
+
+.background-stitch-scope .stitch-custom-color {
+  overflow: hidden;
+  background: linear-gradient(135deg, #f87171, #4ade80, #60a5fa);
+}
+
+.background-stitch-scope .stitch-custom-color input {
+  width: 32px;
+  height: 32px;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.background-stitch-scope .stitch-brush-cursor {
+  pointer-events: none;
+  position: absolute;
+  z-index: 50;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  border-radius: 50%;
+}
+
+.background-stitch-scope .stitch-brush-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  cursor: none;
+  touch-action: none;
+}
+
+.background-stitch-scope .stitch-refining-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 48;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(250, 249, 254, 0.42);
+  color: #444748;
+  font-size: 12px;
+  pointer-events: none;
+  backdrop-filter: blur(1.5px);
+}
+
+.background-stitch-scope .stitch-indeterminate {
+  position: relative;
+  overflow: hidden;
+}
+
+.background-stitch-scope .stitch-indeterminate::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.2), transparent);
+  animation: stitch-indeterminate 1.5s infinite linear;
+}
+
+@keyframes stitch-indeterminate {
+  from { left: -100%; }
+  to { left: 200%; }
+}
+
+.background-stitch-scope .stitch-scrollbar::-webkit-scrollbar { width: 6px; }
+.background-stitch-scope .stitch-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.background-stitch-scope .stitch-scrollbar::-webkit-scrollbar-thumb { background: #dfdfe1; border-radius: 10px; }
