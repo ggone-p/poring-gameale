@@ -1341,6 +1341,50 @@ async function hasNvidiaGpu(): Promise<boolean> {
   }
 }
 
+async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
+  const paths = backgroundRemovalPaths()
+  const snapshotsDir = join(paths.cacheDir, 'models--ZhengPeng7--BiRefNet_dynamic', 'snapshots')
+  if (!existsSync(paths.pythonPath) || !existsSync(snapshotsDir) || readdirSync(snapshotsDir).length === 0) {
+    return false
+  }
+
+  const bundledScript = app.isPackaged
+    ? join(process.resourcesPath, 'birefnet-runtime', 'birefnet_demo.py')
+    : join(app.getAppPath(), 'scripts', 'birefnet_demo.py')
+  if (!existsSync(bundledScript)) return false
+  if (bundledScript !== paths.scriptPath) copyFileSync(bundledScript, paths.scriptPath)
+
+  publishBackgroundRemovalProgress({
+    phase: 'verifying',
+    status: '正在校验已有本地 AI 环境',
+    percent: 70,
+    determinate: true
+  })
+  try {
+    await runRuntimeCommand(
+      paths.pythonPath,
+      ['-c', 'import torch, transformers, PIL, timm, kornia; print(torch.__version__)'],
+      { cwd: paths.installDir }
+    )
+  } catch {
+    return false
+  }
+
+  writeFileSync(paths.manifestPath, JSON.stringify({
+    version: '1',
+    model: 'ZhengPeng7/BiRefNet_dynamic',
+    adopted: true,
+    installedAt: new Date().toISOString()
+  }, null, 2), 'utf8')
+  publishBackgroundRemovalProgress({
+    phase: 'complete',
+    status: '已复用现有本地 AI 抠图环境，无需重复下载',
+    percent: 100,
+    determinate: true
+  })
+  return true
+}
+
 async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<BackgroundRemovalRuntimeStatus> {
   if (backgroundRemovalInstalling) throw new Error('本地 AI 环境正在安装，请勿重复启动。')
   backgroundRemovalInstalling = true
@@ -1349,6 +1393,10 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
     const paths = backgroundRemovalPaths()
     mkdirSync(paths.installDir, { recursive: true })
     mkdirSync(paths.cacheDir, { recursive: true })
+    if (await tryAdoptExistingBackgroundRemovalRuntime()) {
+      backgroundRemovalInstalling = false
+      return backgroundRemovalRuntimeStatus()
+    }
     const toolsDir = join(paths.installDir, 'tools')
     mkdirSync(toolsDir, { recursive: true })
     const uvPath = join(toolsDir, 'uv.exe')

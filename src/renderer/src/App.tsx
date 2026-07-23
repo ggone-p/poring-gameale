@@ -3131,8 +3131,9 @@ function BackgroundRemovalDemo({
               </div>
             </div>
             <div className="rounded-xl bg-surface-container-low px-4 py-3 space-y-1">
-              <div className="text-label-sm font-label-sm text-on-surface-variant">安装位置</div>
+              <div className="text-label-sm font-label-sm text-on-surface-variant">数据目录（推荐）</div>
               <div className="text-body-md font-body-md text-on-surface break-all">{runtime.installDir}</div>
+              <div className="text-label-sm font-label-sm text-on-surface-variant">已有环境可直接选择，不重复下载。</div>
             </div>
             {busy && (
               <div className="space-y-2">
@@ -3147,7 +3148,7 @@ function BackgroundRemovalDemo({
             )}
             {!busy && progress.phase === 'error' && <p className="text-body-md font-body-md text-error">{progress.status}</p>}
             <div className="flex justify-end gap-3">
-              <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(true)} type="button"><FolderOpen size={17} />更换位置</button>
+              <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(true)} type="button"><FolderOpen size={17} />选择位置</button>
               <button className="px-5 py-2.5 rounded-lg bg-primary text-on-primary text-label-lg font-label-lg hover:bg-primary/90 disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(false)} type="button">{busy ? <Loader2 className="spin" size={18} /> : <ArrowDownToLine size={18} />}{busy ? '正在安装' : '开始安装'}</button>
             </div>
           </section>
