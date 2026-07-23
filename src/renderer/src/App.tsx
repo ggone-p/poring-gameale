@@ -2860,6 +2860,15 @@ function BackgroundRemovalDemo({
     })
   }
 
+  useEffect(() => {
+    const canvas = editCanvasRef.current
+    if (!canvas) return
+    const bounds = canvas.getBoundingClientRect()
+    setBrushCursor((current) => current
+      ? { ...current, size: Math.max(8, brushSize * (bounds.width / canvas.width)) }
+      : null)
+  }, [brushSize, zoom, stageSize.width, stageSize.height])
+
   const stampBrush = (x: number, y: number): void => {
     const canvas = editCanvasRef.current
     const original = originalImageRef.current
@@ -3030,7 +3039,21 @@ function BackgroundRemovalDemo({
         return
       }
       if (!result) return
-      if (event.key.toLowerCase() === 'x') {
+      const plainShortcut = !event.ctrlKey && !event.metaKey && !event.altKey
+      if (plainShortcut && event.code === 'KeyB') {
+        event.preventDefault()
+        setBrushMode('restore')
+      }
+      if (plainShortcut && event.code === 'KeyE') {
+        event.preventDefault()
+        setBrushMode('erase')
+      }
+      if (event.code === 'Escape') {
+        event.preventDefault()
+        setBrushMode('none')
+        setBrushCursor(null)
+      }
+      if (plainShortcut && event.code === 'KeyX') {
         event.preventDefault()
         setBrushMode((current) => (current === 'erase' ? 'restore' : 'erase'))
       }
@@ -3039,8 +3062,16 @@ function BackgroundRemovalDemo({
         if (event.shiftKey) redoBrush()
         else undoBrush()
       }
-      if (event.key === '[') setBrushSize((current) => Math.max(4, current - (event.shiftKey ? 20 : 4)))
-      if (event.key === ']') setBrushSize((current) => Math.min(240, current + (event.shiftKey ? 20 : 4)))
+      if (plainShortcut && event.code === 'BracketLeft') {
+        event.preventDefault()
+        if (event.shiftKey) setBrushSoftness((current) => Math.min(100, current + 10))
+        else setBrushSize((current) => Math.max(4, current - 4))
+      }
+      if (plainShortcut && event.code === 'BracketRight') {
+        event.preventDefault()
+        if (event.shiftKey) setBrushSoftness((current) => Math.max(0, current - 10))
+        else setBrushSize((current) => Math.min(240, current + 4))
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === '0') {
         event.preventDefault()
         setZoom(100)
@@ -3242,6 +3273,12 @@ function BackgroundRemovalDemo({
                 {result && canvasReady && brushMode !== 'none' && (
                   <div
                     className="stitch-brush-surface"
+                    style={{
+                      width: `${fitSize.width * zoom / 100}px`,
+                      height: `${fitSize.height * zoom / 100}px`,
+                      left: `calc(50% + ${canvasPan.x}px)`,
+                      top: `calc(50% + ${canvasPan.y}px)`
+                    }}
                     onPointerDown={(event) => {
                       if (event.button !== 0) return
                       const point = brushPoint(event.clientX, event.clientY)
@@ -3271,7 +3308,10 @@ function BackgroundRemovalDemo({
                       brushStrokeRef.current = null
                       saveBrushCanvas()
                     }}
-                    onPointerCancel={() => { brushStrokeRef.current = null }}
+                    onPointerCancel={() => {
+                      if (brushStrokeRef.current) saveBrushCanvas()
+                      brushStrokeRef.current = null
+                    }}
                     onPointerLeave={() => { if (!brushStrokeRef.current) setBrushCursor(null) }}
                   />
                 )}
@@ -3305,8 +3345,8 @@ function BackgroundRemovalDemo({
               {result && (
                 <div className="background-brush-toolbar">
                   <div className="flex items-center gap-2 bg-surface-container-low rounded-lg p-1">
-                    <button className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${brushMode === 'restore' ? 'bg-surface shadow-sm text-primary' : 'hover:bg-surface-variant text-on-surface-variant'}`} onClick={() => setBrushMode((mode) => mode === 'restore' ? 'none' : 'restore')} type="button" title="补回 (X)"><Paintbrush size={20} /></button>
-                    <button className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${brushMode === 'erase' ? 'bg-surface shadow-sm text-primary' : 'hover:bg-surface-variant text-on-surface-variant'}`} onClick={() => setBrushMode((mode) => mode === 'erase' ? 'none' : 'erase')} type="button" title="擦除 (X)"><Eraser size={20} /></button>
+                    <button aria-pressed={brushMode === 'restore'} className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${brushMode === 'restore' ? 'bg-surface shadow-sm text-primary' : 'hover:bg-surface-variant text-on-surface-variant'}`} onClick={() => setBrushMode((mode) => mode === 'restore' ? 'none' : 'restore')} type="button" title="补回画笔 (B)"><Paintbrush size={20} /></button>
+                    <button aria-pressed={brushMode === 'erase'} className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${brushMode === 'erase' ? 'bg-surface shadow-sm text-primary' : 'hover:bg-surface-variant text-on-surface-variant'}`} onClick={() => setBrushMode((mode) => mode === 'erase' ? 'none' : 'erase')} type="button" title="擦除画笔 (E)"><Eraser size={20} /></button>
                   </div>
                   <div className="w-px h-6 bg-outline-variant" />
                   <div className="flex items-center gap-3"><span className="text-label-sm font-label-sm text-on-surface-variant w-8">大小</span><input className="w-20 accent-primary h-1.5 bg-surface-variant rounded-full appearance-none" type="range" min="4" max="240" value={brushSize} onChange={(event) => setBrushSize(Number(event.target.value))} /><span className="text-label-sm font-label-sm text-on-surface-variant w-8 text-right">{brushSize}px</span></div>
