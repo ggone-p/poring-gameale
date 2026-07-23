@@ -78,6 +78,12 @@ const poringFrames = {
   clickLoop: loadFrames(import.meta.glob('./assets/poring-sequence/click-loop/*.webp', { eager: true, query: '?url', import: 'default' }))
 }
 
+function readableError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+}
+
 type PoringMood = 'idle' | 'hover' | 'eating' | 'press-intro' | 'pressed'
 
 type QueueItem = ImageItem & {
@@ -851,7 +857,7 @@ function App(): JSX.Element {
       setBackgroundRemovalRuntime(runtime)
       setBackgroundRemovalStatus(runtime.message)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = readableError(error)
       setBackgroundRemovalStatus(message)
       setBackgroundRemovalProgress({ phase: 'error', status: message, percent: 0, determinate: true })
       setBackgroundRemovalRuntime(await window.assetUploader.getBackgroundRemovalStatus())
@@ -3156,10 +3162,10 @@ function BackgroundRemovalDemo({
       )}
 
       <div className="flex-1 flex overflow-hidden relative min-h-0">
-        <section className="flex-1 relative overflow-hidden bg-surface-container-lowest p-margin-md flex flex-col items-center justify-center min-w-0">
+        <section className="flex-1 relative overflow-hidden bg-surface-container-low p-2 flex flex-col items-center justify-center min-w-0">
           {item ? (
             <div
-              className={`background-canvas-surface relative w-full h-full rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-surface-variant overflow-hidden flex items-center justify-center group/canvas ${spacePressed ? (canvasPanning ? 'canvas-is-panning' : 'canvas-pan-ready') : 'cursor-crosshair'} ${result ? resultBackgroundClass : 'bg-surface-container-low'}`}
+              className={`background-canvas-surface relative w-full h-full rounded-xl border border-surface-variant bg-surface overflow-hidden flex items-center justify-center group/canvas ${spacePressed ? (canvasPanning ? 'canvas-is-panning' : 'canvas-pan-ready') : 'cursor-crosshair'} ${result ? resultBackgroundClass : ''}`}
               style={result ? previewBackgroundStyle : undefined}
               onWheel={(event) => {
                 if (!(event.ctrlKey || event.metaKey)) return
@@ -3329,13 +3335,11 @@ function BackgroundRemovalDemo({
               )}
             </div>
           ) : (
-            <div className="relative w-full h-full rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-surface-variant overflow-hidden flex items-center justify-center bg-surface-container-lowest">
-              <button className="w-full h-full max-w-[800px] max-h-[600px] rounded-xl border border-dashed border-outline-variant bg-surface-container-low flex flex-col items-center justify-center gap-2 text-on-surface-variant" onClick={onPick} type="button">
-                <ImagePlus size={34} />
-                <strong className="text-body-lg font-semibold">拖入或选择一张图片</strong>
-                <span className="text-label-lg">支持 PNG、JPG、WebP，图片仅在本机处理。</span>
-              </button>
-            </div>
+            <button className="w-full h-full rounded-xl border border-surface-variant bg-surface flex flex-col items-center justify-center gap-2 text-on-surface-variant hover:bg-surface-container-low transition-colors" onClick={onPick} type="button">
+              <ImagePlus size={34} />
+              <strong className="text-body-lg font-semibold">拖入或选择一张图片</strong>
+              <span className="text-label-lg">支持 PNG、JPG、WebP，图片仅在本机处理。</span>
+            </button>
           )}
         </section>
 
@@ -3363,7 +3367,7 @@ function BackgroundRemovalDemo({
       </div>
 
       <footer className="h-16 bg-surface border-t border-surface-variant flex items-center justify-between px-gutter flex-shrink-0 z-10">
-        <div className="flex items-center gap-4 flex-1 min-w-0"><span className="text-body-md font-body-md text-on-surface truncate">状态：{refining ? '正在更新精修预览...' : status || '等待添加图片'}</span><span className="text-label-sm font-label-sm text-on-surface-variant whitespace-nowrap">{runtime?.modelDownloaded ? '模型已加载' : '首次使用需下载约 444 MB 模型'}</span></div>
+        <div className="flex items-center gap-4 flex-1 min-w-0"><span className="text-body-md font-body-md text-on-surface truncate" title={refining ? '正在更新精修预览...' : status || '等待添加图片'}>状态：{refining ? '正在更新精修预览...' : status || '等待添加图片'}</span><span className="text-label-sm font-label-sm text-on-surface-variant whitespace-nowrap">{runtime?.modelDownloaded ? '模型已加载' : '首次使用需下载约 444 MB 模型'}</span></div>
         <div className="flex-1 flex justify-center items-center">
           {(busy || refining) && <div className={`w-64 h-1.5 bg-surface-variant rounded-full overflow-hidden ${progress.determinate && !refining ? '' : 'stitch-indeterminate'}`}><div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${refining ? 45 : progress.determinate ? progress.percent : 0}%` }} /></div>}
         </div>

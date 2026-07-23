@@ -1421,30 +1421,68 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
       rmSync(archivePath, { force: true })
     }
 
-    publishBackgroundRemovalProgress({ phase: 'installing', status: '正在准备独立 Python 3.11 环境', percent: 20, determinate: true })
-    await runRuntimeCommand(uvPath, ['venv', join(paths.installDir, '.venv'), '--python', '3.11'], {
-      cwd: paths.installDir,
-      env: runtimeEnv
-    })
+    let runtimeDependenciesReady = false
+    if (existsSync(paths.pythonPath)) {
+      publishBackgroundRemovalProgress({
+        phase: 'verifying',
+        status: '正在检查已有 Python 推理环境',
+        percent: 20,
+        determinate: true
+      })
+      try {
+        await runRuntimeCommand(
+          paths.pythonPath,
+          ['-c', 'import torch, transformers, PIL, timm, kornia; print(torch.__version__)'],
+          { cwd: paths.installDir, env: runtimeEnv }
+        )
+        runtimeDependenciesReady = true
+      } catch {
+        runtimeDependenciesReady = false
+      }
+    }
 
     const gpuAvailable = await hasNvidiaGpu()
-    publishBackgroundRemovalProgress({
-      phase: 'installing',
-      status: `正在安装 PyTorch（${gpuAvailable ? 'NVIDIA GPU' : 'CPU'} 版本）`,
-      percent: 35,
-      determinate: true
-    })
-    const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', gpuAvailable
-      ? 'https://download.pytorch.org/whl/cu128'
-      : 'https://download.pytorch.org/whl/cpu']
-    await runRuntimeCommand(uvPath, torchArgs, { cwd: paths.installDir, env: runtimeEnv })
+    if (!runtimeDependenciesReady) {
+      const venvDir = join(paths.installDir, '.venv')
+      publishBackgroundRemovalProgress({
+        phase: 'installing',
+        status: existsSync(venvDir) ? '正在修复未完成的 Python 环境' : '正在准备独立 Python 3.11 环境',
+        percent: 20,
+        determinate: true
+      })
+      const venvArgs = ['venv']
+      if (existsSync(venvDir)) venvArgs.push('--clear')
+      venvArgs.push(venvDir, '--python', '3.11')
+      await runRuntimeCommand(uvPath, venvArgs, {
+        cwd: paths.installDir,
+        env: runtimeEnv
+      })
 
-    publishBackgroundRemovalProgress({ phase: 'installing', status: '正在安装 BiRefNet 推理依赖', percent: 62, determinate: true })
-    await runRuntimeCommand(
-      uvPath,
-      ['pip', 'install', '--python', paths.pythonPath, 'transformers>=4.46,<5', 'pillow', 'safetensors', 'huggingface-hub', 'timm', 'kornia', 'einops', 'tqdm'],
-      { cwd: paths.installDir, env: runtimeEnv }
-    )
+      publishBackgroundRemovalProgress({
+        phase: 'installing',
+        status: `正在安装 PyTorch（${gpuAvailable ? 'NVIDIA GPU' : 'CPU'} 版本）`,
+        percent: 35,
+        determinate: true
+      })
+      const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', gpuAvailable
+        ? 'https://download.pytorch.org/whl/cu128'
+        : 'https://download.pytorch.org/whl/cpu']
+      await runRuntimeCommand(uvPath, torchArgs, { cwd: paths.installDir, env: runtimeEnv })
+
+      publishBackgroundRemovalProgress({ phase: 'installing', status: '正在安装 BiRefNet 推理依赖', percent: 62, determinate: true })
+      await runRuntimeCommand(
+        uvPath,
+        ['pip', 'install', '--python', paths.pythonPath, 'transformers>=4.46,<5', 'pillow', 'safetensors', 'huggingface-hub', 'timm', 'kornia', 'einops', 'tqdm'],
+        { cwd: paths.installDir, env: runtimeEnv }
+      )
+    } else {
+      publishBackgroundRemovalProgress({
+        phase: 'installing',
+        status: '已复用现有 Python 推理环境',
+        percent: 68,
+        determinate: true
+      })
+    }
 
     const bundledScript = app.isPackaged
       ? join(process.resourcesPath, 'birefnet-runtime', 'birefnet_demo.py')
@@ -1514,6 +1552,9 @@ async function runBackgroundRemoval(inputPath: string): Promise<BackgroundRemova
   if (!IMAGE_EXTENSIONS.has(extname(inputPath).toLowerCase())) {
     throw new Error('请选择 PNG / JPG / WebP 图片。')
   }
+  if (!existsSync(inputPath)) {
+    throw new Error('原图文件已不存在，请重新选择图片。')
+  }
   const paths = backgroundRemovalPaths()
   if (!existsSync(paths.pythonPath) || !existsSync(paths.scriptPath)) {
     throw new Error('BiRefNet demo 运行环境尚未安装，请先运行 scripts/setup-birefnet-demo.ps1。')
@@ -1526,7 +1567,7 @@ async function runBackgroundRemoval(inputPath: string): Promise<BackgroundRemova
       paths.pythonPath,
       [paths.scriptPath, inputPath, outputPath, '--cache-dir', paths.cacheDir],
       {
-        cwd: app.getAppPath(),
+        cwd: paths.installDir,
         windowsHide: true,
         env: { ...process.env, PYTHONUTF8: '1' }
       }
