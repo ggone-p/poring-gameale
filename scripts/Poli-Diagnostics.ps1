@@ -184,7 +184,7 @@ try {
 
 $updateUrl = 'https://github.com/ggone-p/poring-gameale/releases/latest/download/latest.yml'
 $releaseApiUrl = 'https://api.github.com/repos/ggone-p/poring-gameale/releases/latest'
-$installerUrl = 'https://github.com/ggone-p/poring-gameale/releases/download/v0.1.26/poring-gameale-0.1.26-x64.exe'
+$installerUrl = 'https://github.com/ggone-p/poring-gameale/releases/download/v0.1.27/poring-gameale-0.1.27-x64.exe'
 $uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip'
 $torchCpuUrl = 'https://download.pytorch.org/whl/cpu/torch/'
 $modelApiUrl = 'https://huggingface.co/api/models/ZhengPeng7/BiRefNet_dynamic'
