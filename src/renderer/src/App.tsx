@@ -44,6 +44,7 @@ import {
 import type {
   AppConfig,
   AssetFile,
+  BackgroundRemovalAccelerator,
   BackgroundRemovalProgress,
   BackgroundRemovalResult,
   BackgroundRemovalRuntimeStatus,
@@ -837,7 +838,10 @@ function App(): JSX.Element {
     if (items[0]) await setBackgroundRemovalPath(items[0].path)
   }
 
-  async function installBackgroundRemovalEnvironment(chooseDirectory = false): Promise<void> {
+  async function installBackgroundRemovalEnvironment(
+    accelerator: BackgroundRemovalAccelerator,
+    chooseDirectory = false
+  ): Promise<void> {
     if (backgroundRemovalBusy) return
     let installDir = backgroundRemovalRuntime?.installDir
     if (chooseDirectory) {
@@ -853,7 +857,7 @@ function App(): JSX.Element {
       determinate: false
     })
     try {
-      const runtime = await window.assetUploader.installBackgroundRemovalRuntime(installDir)
+      const runtime = await window.assetUploader.installBackgroundRemovalRuntime({ installDir, accelerator })
       setBackgroundRemovalRuntime(runtime)
       setBackgroundRemovalStatus(runtime.message)
     } catch (error) {
@@ -1501,7 +1505,9 @@ function App(): JSX.Element {
           onBack={() => void switchToolView('toolbox')}
           onPick={() => void pickBackgroundRemovalImage()}
           onClear={clearBackgroundRemovalCanvas}
-          onInstallEnvironment={(chooseDirectory) => void installBackgroundRemovalEnvironment(chooseDirectory)}
+          onInstallEnvironment={(accelerator, chooseDirectory) =>
+            void installBackgroundRemovalEnvironment(accelerator, chooseDirectory)
+          }
           onRun={() => void runBackgroundRemovalDemo()}
           onCopyResult={async (dataUrl) => {
             if (!backgroundRemovalResult) return
@@ -2631,7 +2637,7 @@ function BackgroundRemovalDemo({
   onBack: () => void
   onPick: () => void
   onClear: () => void
-  onInstallEnvironment: (chooseDirectory: boolean) => void
+  onInstallEnvironment: (accelerator: BackgroundRemovalAccelerator, chooseDirectory?: boolean) => void
   onRun: () => void
   onCopyResult: (dataUrl?: string) => void
   onSaveEdit: (dataUrl: string) => void
@@ -2659,6 +2665,7 @@ function BackgroundRemovalDemo({
   const [colorCleanupStrength, setColorCleanupStrength] = useState(50)
   const [refining, setRefining] = useState(false)
   const [historyVersion, setHistoryVersion] = useState(0)
+  const [installAccelerator, setInstallAccelerator] = useState<BackgroundRemovalAccelerator>('cpu')
   const stageRef = useRef<HTMLDivElement>(null)
   const editCanvasRef = useRef<HTMLCanvasElement>(null)
   const originalImageRef = useRef<HTMLImageElement | null>(null)
@@ -3172,6 +3179,38 @@ function BackgroundRemovalDemo({
               <div className="text-body-md font-body-md text-on-surface break-all">{runtime.installDir}</div>
               <div className="text-label-sm font-label-sm text-on-surface-variant">已有环境可直接选择，不重复下载。</div>
             </div>
+            {!busy && (
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  aria-pressed={installAccelerator === 'cpu'}
+                  className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                    installAccelerator === 'cpu'
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'border-surface-variant hover:bg-surface-container-low'
+                  }`}
+                  onClick={() => setInstallAccelerator('cpu')}
+                  type="button"
+                >
+                  <strong className="block text-body-md font-semibold">快速兼容安装</strong>
+                  <span className="mt-1 block text-label-sm text-on-surface-variant">CPU · PyTorch 约 120 MB</span>
+                  <span className="mt-1 block text-label-sm text-on-surface-variant">下载快，抠图速度较慢</span>
+                </button>
+                <button
+                  aria-pressed={installAccelerator === 'nvidia'}
+                  className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                    installAccelerator === 'nvidia'
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'border-surface-variant hover:bg-surface-container-low'
+                  }`}
+                  onClick={() => setInstallAccelerator('nvidia')}
+                  type="button"
+                >
+                  <strong className="block text-body-md font-semibold">NVIDIA 加速安装</strong>
+                  <span className="mt-1 block text-label-sm text-on-surface-variant">GPU · PyTorch 约 2.56 GB</span>
+                  <span className="mt-1 block text-label-sm text-on-surface-variant">下载较慢，抠图速度更快</span>
+                </button>
+              </div>
+            )}
             {busy && (
               <div className="space-y-2">
                 <div className="flex justify-between gap-4 text-label-lg font-label-lg">
@@ -3185,8 +3224,8 @@ function BackgroundRemovalDemo({
             )}
             {!busy && progress.phase === 'error' && <p className="text-body-md font-body-md text-error">{progress.status}</p>}
             <div className="flex justify-end gap-3">
-              <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(true)} type="button"><FolderOpen size={17} />选择位置</button>
-              <button className="px-5 py-2.5 rounded-lg bg-primary text-on-primary text-label-lg font-label-lg hover:bg-primary/90 disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(false)} type="button">{busy ? <Loader2 className="spin" size={18} /> : <ArrowDownToLine size={18} />}{busy ? '正在安装' : '开始安装'}</button>
+              <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(installAccelerator, true)} type="button"><FolderOpen size={17} />选择位置</button>
+              <button className="px-5 py-2.5 rounded-lg bg-primary text-on-primary text-label-lg font-label-lg hover:bg-primary/90 disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(installAccelerator, false)} type="button">{busy ? <Loader2 className="spin" size={18} /> : <ArrowDownToLine size={18} />}{busy ? '正在安装' : installAccelerator === 'cpu' ? '快速安装' : '安装 NVIDIA 版'}</button>
             </div>
           </section>
         </div>

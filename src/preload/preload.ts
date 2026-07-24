@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import type {
   AppConfig,
   AssetLibrary,
+  BackgroundRemovalInstallRequest,
   BackgroundRemovalProgress,
   BackgroundRemovalResult,
   BackgroundRemovalRuntimeStatus,
@@ -42,8 +43,8 @@ const api = {
     ipcRenderer.invoke('background-removal:status'),
   pickBackgroundRemovalInstallDirectory: (): Promise<string> =>
     ipcRenderer.invoke('background-removal:pick-install-directory'),
-  installBackgroundRemovalRuntime: (installDir?: string): Promise<BackgroundRemovalRuntimeStatus> =>
-    ipcRenderer.invoke('background-removal:install-runtime', installDir),
+  installBackgroundRemovalRuntime: (request: BackgroundRemovalInstallRequest): Promise<BackgroundRemovalRuntimeStatus> =>
+    ipcRenderer.invoke('background-removal:install-runtime', request),
   runBackgroundRemoval: (path: string): Promise<BackgroundRemovalResult> =>
     ipcRenderer.invoke('background-removal:run', path),
   copyBackgroundRemovalResult: (path: string, dataUrl?: string): Promise<void> =>

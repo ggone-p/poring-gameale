@@ -10,6 +10,7 @@ import sharp from 'sharp'
 import type {
   AppConfig,
   AssetFile,
+  BackgroundRemovalInstallRequest,
   BackgroundRemovalProgress,
   BackgroundRemovalResult,
   BackgroundRemovalRuntimeStatus,
@@ -1301,7 +1302,7 @@ async function downloadRuntimeFile(url: string, targetPath: string): Promise<voi
 async function runRuntimeCommand(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv; onLine?: (line: string) => void }
+  options: { cwd: string; env?: NodeJS.ProcessEnv; onLine?: (line: string) => void; timeoutMs?: number }
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
@@ -1311,19 +1312,37 @@ async function runRuntimeCommand(
     })
     let output = ''
     let errorOutput = ''
+    let timedOut = false
+    const timeout = options.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true
+          child.kill()
+        }, options.timeoutMs)
+      : null
+    const clearCommandTimeout = (): void => {
+      if (timeout) clearTimeout(timeout)
+    }
     const consume = (chunk: Buffer, isError = false): void => {
       const text = chunk.toString('utf8')
-      if (isError) errorOutput += text
+      if (isError) errorOutput = `${errorOutput}${text}`.slice(-32_000)
       output += text
-      const lines = output.split(/\r?\n/)
+      const lines = output.split(/\r\n?|\n/)
       output = lines.pop() || ''
       lines.forEach((line) => options.onLine?.(line))
     }
     child.stdout.on('data', (chunk: Buffer) => consume(chunk))
     child.stderr.on('data', (chunk: Buffer) => consume(chunk, true))
-    child.on('error', reject)
+    child.on('error', (error) => {
+      clearCommandTimeout()
+      reject(error)
+    })
     child.on('close', (code) => {
+      clearCommandTimeout()
       if (output.trim()) options.onLine?.(output.trim())
+      if (timedOut) {
+        reject(new Error('安装下载长时间没有完成。请检查网络，或改用快速兼容安装（CPU）。'))
+        return
+      }
       if (code === 0) resolve()
       else reject(new Error(errorOutput.trim() || `安装命令失败（退出码 ${code ?? 'unknown'}）`))
     })
@@ -1385,10 +1404,12 @@ async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
   return true
 }
 
-async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<BackgroundRemovalRuntimeStatus> {
+async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstallRequest): Promise<BackgroundRemovalRuntimeStatus> {
   if (backgroundRemovalInstalling) throw new Error('本地 AI 环境正在安装，请勿重复启动。')
   backgroundRemovalInstalling = true
   try {
+    const requestedDir = request.installDir
+    const accelerator = request.accelerator
     if (requestedDir) saveConfig({ backgroundRemoval: { installDir: requestedDir } })
     const paths = backgroundRemovalPaths()
     mkdirSync(paths.installDir, { recursive: true })
@@ -1403,7 +1424,11 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
     const runtimeEnv = {
       UV_CACHE_DIR: join(paths.installDir, '.uv-cache'),
       UV_PYTHON_INSTALL_DIR: join(paths.installDir, 'python'),
-      UV_PYTHON_PREFERENCE: 'only-managed'
+      UV_PYTHON_PREFERENCE: 'only-managed',
+      UV_HTTP_CONNECT_TIMEOUT: '15',
+      UV_HTTP_TIMEOUT: '60',
+      UV_HTTP_RETRIES: '2',
+      UV_LOCK_TIMEOUT: '30'
     }
 
     if (!existsSync(uvPath)) {
@@ -1421,6 +1446,11 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
       rmSync(archivePath, { force: true })
     }
 
+    const useNvidia = accelerator === 'nvidia'
+    if (useNvidia && !(await hasNvidiaGpu())) {
+      throw new Error('未检测到可用的 NVIDIA 显卡或驱动，请选择快速兼容安装（CPU）。')
+    }
+
     let runtimeDependenciesReady = false
     if (existsSync(paths.pythonPath)) {
       publishBackgroundRemovalProgress({
@@ -1432,7 +1462,7 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
       try {
         await runRuntimeCommand(
           paths.pythonPath,
-          ['-c', 'import torch, transformers, PIL, timm, kornia; print(torch.__version__)'],
+          ['-c', `import torch, transformers, PIL, timm, kornia; ${useNvidia ? "assert torch.cuda.is_available(), 'CUDA unavailable'; " : ''}print(torch.__version__)`],
           { cwd: paths.installDir, env: runtimeEnv }
         )
         runtimeDependenciesReady = true
@@ -1441,7 +1471,6 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
       }
     }
 
-    const gpuAvailable = await hasNvidiaGpu()
     if (!runtimeDependenciesReady) {
       const venvDir = join(paths.installDir, '.venv')
       publishBackgroundRemovalProgress({
@@ -1460,14 +1489,30 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
 
       publishBackgroundRemovalProgress({
         phase: 'installing',
-        status: `正在安装 PyTorch（${gpuAvailable ? 'NVIDIA GPU' : 'CPU'} 版本）`,
+        status: useNvidia
+          ? '正在下载 PyTorch NVIDIA 版（约 2.56 GB）'
+          : '正在下载 PyTorch CPU 兼容版（约 120 MB）',
         percent: 35,
-        determinate: true
+        determinate: false
       })
-      const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', gpuAvailable
+      const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', useNvidia
         ? 'https://download.pytorch.org/whl/cu128'
         : 'https://download.pytorch.org/whl/cpu']
-      await runRuntimeCommand(uvPath, torchArgs, { cwd: paths.installDir, env: runtimeEnv })
+      await runRuntimeCommand(uvPath, torchArgs, {
+        cwd: paths.installDir,
+        env: runtimeEnv,
+        timeoutMs: useNvidia ? 45 * 60_000 : 12 * 60_000,
+        onLine: (line) => {
+          const detail = line.replace(/\x1b\[[0-9;]*m/g, '').trim()
+          if (!detail) return
+          publishBackgroundRemovalProgress({
+            phase: 'installing',
+            status: `${useNvidia ? 'NVIDIA' : 'CPU'} 环境 · ${detail.slice(0, 120)}`,
+            percent: 35,
+            determinate: false
+          })
+        }
+      })
 
       publishBackgroundRemovalProgress({ phase: 'installing', status: '正在安装 BiRefNet 推理依赖', percent: 62, determinate: true })
       await runRuntimeCommand(
@@ -1520,7 +1565,7 @@ async function installBackgroundRemovalRuntime(requestedDir?: string): Promise<B
     writeFileSync(paths.manifestPath, JSON.stringify({
       version: '1',
       model: 'ZhengPeng7/BiRefNet_dynamic',
-      gpu: gpuAvailable ? 'nvidia' : 'cpu',
+      gpu: useNvidia ? 'nvidia' : 'cpu',
       installedAt: new Date().toISOString()
     }, null, 2), 'utf8')
     publishBackgroundRemovalProgress({ phase: 'complete', status: '本地 AI 抠图环境安装完成', percent: 100, determinate: true })
@@ -1971,8 +2016,8 @@ ipcMain.handle('background-removal:pick-install-directory', async () => {
   })
   return result.canceled ? '' : result.filePaths[0]
 })
-ipcMain.handle('background-removal:install-runtime', (_, installDir?: string) =>
-  installBackgroundRemovalRuntime(installDir)
+ipcMain.handle('background-removal:install-runtime', (_, request: BackgroundRemovalInstallRequest) =>
+  installBackgroundRemovalRuntime(request)
 )
 ipcMain.handle('background-removal:run', (_, path: string) => runBackgroundRemoval(path))
 ipcMain.handle('background-removal:copy-result', (_, path: string, dataUrl?: string) => {

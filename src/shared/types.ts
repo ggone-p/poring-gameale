@@ -139,6 +139,13 @@ export interface BackgroundRemovalRuntimeStatus {
   version?: string
 }
 
+export type BackgroundRemovalAccelerator = 'cpu' | 'nvidia'
+
+export interface BackgroundRemovalInstallRequest {
+  installDir?: string
+  accelerator: BackgroundRemovalAccelerator
+}
+
 export interface BackgroundRemovalProgress {
   phase: 'idle' | 'downloading' | 'installing' | 'verifying' | 'loading' | 'processing' | 'saving' | 'complete' | 'error'
   status: string
