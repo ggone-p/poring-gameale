@@ -522,6 +522,11 @@ function createWindow(): void {
 
   mainWindow.on('close', (event) => {
     if (isQuitting) return
+    if (backgroundRemovalInstalling) {
+      event.preventDefault()
+      collapseWindow()
+      return
+    }
     if (!readConfig().workflow.keepInBackground) {
       isQuitting = true
       return
@@ -1273,6 +1278,31 @@ function publishBackgroundRemovalProgress(progress: BackgroundRemovalProgress): 
   mainWindow?.webContents.send('background-removal:progress', progress)
 }
 
+function directorySize(path: string): number {
+  if (!existsSync(path)) return 0
+  let total = 0
+  const pending = [path]
+  while (pending.length) {
+    const current = pending.pop()
+    if (!current) continue
+    try {
+      for (const entry of readdirSync(current, { withFileTypes: true })) {
+        const entryPath = join(current, entry.name)
+        if (entry.isDirectory()) pending.push(entryPath)
+        else if (entry.isFile()) total += statSync(entryPath).size
+      }
+    } catch {
+      // A cache entry can be renamed atomically while uv is downloading it.
+    }
+  }
+  return total
+}
+
+function formatProgressBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+  return `${Math.max(0, bytes / 1024 ** 2).toFixed(0)} MB`
+}
+
 async function downloadRuntimeFile(url: string, targetPath: string): Promise<void> {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok || !response.body) throw new Error(`下载失败：HTTP ${response.status}`)
@@ -1493,26 +1523,47 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
           ? '正在下载 PyTorch NVIDIA 版（约 2.56 GB）'
           : '正在下载 PyTorch CPU 兼容版（约 120 MB）',
         percent: 35,
-        determinate: false
+        determinate: true
       })
       const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', useNvidia
         ? 'https://download.pytorch.org/whl/cu128'
         : 'https://download.pytorch.org/whl/cpu']
-      await runRuntimeCommand(uvPath, torchArgs, {
-        cwd: paths.installDir,
-        env: runtimeEnv,
-        timeoutMs: useNvidia ? 45 * 60_000 : 12 * 60_000,
-        onLine: (line) => {
-          const detail = line.replace(/\x1b\[[0-9;]*m/g, '').trim()
-          if (!detail) return
-          publishBackgroundRemovalProgress({
-            phase: 'installing',
-            status: `${useNvidia ? 'NVIDIA' : 'CPU'} 环境 · ${detail.slice(0, 120)}`,
-            percent: 35,
-            determinate: false
-          })
-        }
-      })
+      const cacheDir = runtimeEnv.UV_CACHE_DIR
+      const expectedDownloadBytes = useNvidia ? 2.56 * 1024 ** 3 : 120 * 1024 ** 2
+      let previousCacheBytes = directorySize(cacheDir)
+      let previousSampleAt = Date.now()
+      let latestDetail = ''
+      const publishTorchProgress = (): void => {
+        const cacheBytes = directorySize(cacheDir)
+        const now = Date.now()
+        const elapsedSeconds = Math.max(0.1, (now - previousSampleAt) / 1000)
+        const speedBytesPerSecond = Math.max(0, Math.round((cacheBytes - previousCacheBytes) / elapsedSeconds))
+        const stagePercent = Math.min(99, Math.max(1, Math.round(cacheBytes * 100 / expectedDownloadBytes)))
+        publishBackgroundRemovalProgress({
+          phase: 'installing',
+          status: `${useNvidia ? 'NVIDIA' : 'CPU'} 环境 · 已缓存 ${formatProgressBytes(cacheBytes)} / 约 ${formatProgressBytes(expectedDownloadBytes)}${latestDetail ? ` · ${latestDetail}` : ''}`,
+          percent: 35 + Math.round(stagePercent * 0.27),
+          determinate: true,
+          speedBytesPerSecond: speedBytesPerSecond || undefined
+        })
+        previousCacheBytes = cacheBytes
+        previousSampleAt = now
+      }
+      publishTorchProgress()
+      const progressTimer = setInterval(publishTorchProgress, 1000)
+      try {
+        await runRuntimeCommand(uvPath, torchArgs, {
+          cwd: paths.installDir,
+          env: runtimeEnv,
+          timeoutMs: useNvidia ? 45 * 60_000 : 12 * 60_000,
+          onLine: (line) => {
+            const detail = line.replace(/\x1b\[[0-9;]*m/g, '').trim()
+            if (detail) latestDetail = detail.slice(0, 80)
+          }
+        })
+      } finally {
+        clearInterval(progressTimer)
+      }
 
       publishBackgroundRemovalProgress({ phase: 'installing', status: '正在安装 BiRefNet 推理依赖', percent: 62, determinate: true })
       await runRuntimeCommand(

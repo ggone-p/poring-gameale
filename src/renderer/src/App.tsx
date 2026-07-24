@@ -3163,8 +3163,8 @@ function BackgroundRemovalDemo({
       </header>
 
       {runtime && !runtime.ready && (
-        <div className="absolute inset-x-0 top-16 bottom-0 z-50 bg-surface-container-lowest/95 backdrop-blur-sm flex items-center justify-center p-8">
-          <section className="w-full max-w-xl bg-surface rounded-2xl border border-surface-variant shadow-xl p-7 space-y-5">
+        <div className="absolute inset-x-0 top-14 bottom-0 z-50 bg-surface-container-lowest/95 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-3 sm:p-5">
+          <section className="my-auto w-full max-w-xl max-h-full overflow-y-auto bg-surface rounded-2xl border border-surface-variant shadow-xl p-5 sm:p-6 space-y-4">
             <div className="flex items-start gap-4">
               <div className="w-11 h-11 rounded-xl bg-surface-container-low flex items-center justify-center text-primary flex-shrink-0">
                 <Database size={23} />
@@ -3220,6 +3220,7 @@ function BackgroundRemovalDemo({
                 <div className={`h-2 bg-surface-variant rounded-full overflow-hidden ${progress.determinate ? '' : 'stitch-indeterminate'}`}>
                   <div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${progress.determinate ? progress.percent : 0}%` }} />
                 </div>
+                <p className="text-label-sm font-label-sm text-on-surface-variant">可以关闭窗口让它在后台继续；请勿从托盘退出。若软件被重启，再点安装会复用已下载缓存。</p>
               </div>
             )}
             {!busy && progress.phase === 'error' && <p className="text-body-md font-body-md text-error">{progress.status}</p>}
