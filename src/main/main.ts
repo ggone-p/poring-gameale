@@ -4,8 +4,9 @@ import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { constants as osConstants, setPriority } from 'node:os'
 import sharp from 'sharp'
 import type {
   AppConfig,
@@ -72,6 +73,8 @@ let fallbackInstallerPath = ''
 let lastCollapsedPosition: { x: number; y: number } | null = null
 let suppressMoveSave = false
 let backgroundRemovalInstalling = false
+let backgroundRemovalInstallCancelled = false
+let backgroundRemovalInstallChild: ChildProcessWithoutNullStreams | null = null
 
 let updateState = {
   phase: 'idle',
@@ -1278,31 +1281,6 @@ function publishBackgroundRemovalProgress(progress: BackgroundRemovalProgress): 
   mainWindow?.webContents.send('background-removal:progress', progress)
 }
 
-function directorySize(path: string): number {
-  if (!existsSync(path)) return 0
-  let total = 0
-  const pending = [path]
-  while (pending.length) {
-    const current = pending.pop()
-    if (!current) continue
-    try {
-      for (const entry of readdirSync(current, { withFileTypes: true })) {
-        const entryPath = join(current, entry.name)
-        if (entry.isDirectory()) pending.push(entryPath)
-        else if (entry.isFile()) total += statSync(entryPath).size
-      }
-    } catch {
-      // A cache entry can be renamed atomically while uv is downloading it.
-    }
-  }
-  return total
-}
-
-function formatProgressBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`
-  return `${Math.max(0, bytes / 1024 ** 2).toFixed(0)} MB`
-}
-
 async function downloadRuntimeFile(url: string, targetPath: string): Promise<void> {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok || !response.body) throw new Error(`下载失败：HTTP ${response.status}`)
@@ -1340,6 +1318,14 @@ async function runRuntimeCommand(
       windowsHide: true,
       env: { ...process.env, ...options.env, PYTHONUTF8: '1' }
     })
+    if (backgroundRemovalInstalling) backgroundRemovalInstallChild = child
+    if (child.pid) {
+      try {
+        setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL)
+      } catch {
+        // Some managed Windows environments do not allow changing process priority.
+      }
+    }
     let output = ''
     let errorOutput = ''
     let timedOut = false
@@ -1368,6 +1354,7 @@ async function runRuntimeCommand(
     })
     child.on('close', (code) => {
       clearCommandTimeout()
+      if (backgroundRemovalInstallChild === child) backgroundRemovalInstallChild = null
       if (output.trim()) options.onLine?.(output.trim())
       if (timedOut) {
         reject(new Error('安装下载长时间没有完成。请检查网络，或改用快速兼容安装（CPU）。'))
@@ -1377,6 +1364,20 @@ async function runRuntimeCommand(
       else reject(new Error(errorOutput.trim() || `安装命令失败（退出码 ${code ?? 'unknown'}）`))
     })
   })
+}
+
+function cancelBackgroundRemovalInstallation(): boolean {
+  if (!backgroundRemovalInstalling) return false
+  backgroundRemovalInstallCancelled = true
+  const child = backgroundRemovalInstallChild
+  if (child && !child.killed) child.kill()
+  publishBackgroundRemovalProgress({
+    phase: 'error',
+    status: '安装已暂停，已完成的下载缓存会保留。稍后可重新点击安装继续。',
+    percent: 0,
+    determinate: true
+  })
+  return true
 }
 
 async function hasNvidiaGpu(): Promise<boolean> {
@@ -1437,6 +1438,7 @@ async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
 async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstallRequest): Promise<BackgroundRemovalRuntimeStatus> {
   if (backgroundRemovalInstalling) throw new Error('本地 AI 环境正在安装，请勿重复启动。')
   backgroundRemovalInstalling = true
+  backgroundRemovalInstallCancelled = false
   try {
     const requestedDir = request.installDir
     const accelerator = request.accelerator
@@ -1458,7 +1460,11 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
       UV_HTTP_CONNECT_TIMEOUT: '15',
       UV_HTTP_TIMEOUT: '60',
       UV_HTTP_RETRIES: '2',
-      UV_LOCK_TIMEOUT: '30'
+      UV_LOCK_TIMEOUT: '5',
+      UV_CONCURRENT_DOWNLOADS: '2',
+      UV_CONCURRENT_INSTALLS: '1',
+      UV_CONCURRENT_BUILDS: '1',
+      UV_NO_PROGRESS: '1'
     }
 
     if (!existsSync(uvPath)) {
@@ -1523,34 +1529,27 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
           ? '正在下载 PyTorch NVIDIA 版（约 2.56 GB）'
           : '正在下载 PyTorch CPU 兼容版（约 120 MB）',
         percent: 35,
-        determinate: true
+        determinate: false
       })
       const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', useNvidia
         ? 'https://download.pytorch.org/whl/cu128'
         : 'https://download.pytorch.org/whl/cpu']
-      const cacheDir = runtimeEnv.UV_CACHE_DIR
-      const expectedDownloadBytes = useNvidia ? 2.56 * 1024 ** 3 : 120 * 1024 ** 2
-      let previousCacheBytes = directorySize(cacheDir)
-      let previousSampleAt = Date.now()
+      const torchStartedAt = Date.now()
       let latestDetail = ''
       const publishTorchProgress = (): void => {
-        const cacheBytes = directorySize(cacheDir)
-        const now = Date.now()
-        const elapsedSeconds = Math.max(0.1, (now - previousSampleAt) / 1000)
-        const speedBytesPerSecond = Math.max(0, Math.round((cacheBytes - previousCacheBytes) / elapsedSeconds))
-        const stagePercent = Math.min(99, Math.max(1, Math.round(cacheBytes * 100 / expectedDownloadBytes)))
+        const elapsedSeconds = Math.max(0, Math.round((Date.now() - torchStartedAt) / 1000))
+        const elapsedText = elapsedSeconds >= 60
+          ? `${Math.floor(elapsedSeconds / 60)}分${elapsedSeconds % 60}秒`
+          : `${elapsedSeconds}秒`
         publishBackgroundRemovalProgress({
           phase: 'installing',
-          status: `${useNvidia ? 'NVIDIA' : 'CPU'} 环境 · 已缓存 ${formatProgressBytes(cacheBytes)} / 约 ${formatProgressBytes(expectedDownloadBytes)}${latestDetail ? ` · ${latestDetail}` : ''}`,
-          percent: 35 + Math.round(stagePercent * 0.27),
-          determinate: true,
-          speedBytesPerSecond: speedBytesPerSecond || undefined
+          status: `${useNvidia ? 'NVIDIA' : 'CPU'} 环境 · ${latestDetail || '正在下载并解压 PyTorch'} · 已用时 ${elapsedText}`,
+          percent: 35,
+          determinate: false
         })
-        previousCacheBytes = cacheBytes
-        previousSampleAt = now
       }
       publishTorchProgress()
-      const progressTimer = setInterval(publishTorchProgress, 1000)
+      const progressTimer = setInterval(publishTorchProgress, 2000)
       try {
         await runRuntimeCommand(uvPath, torchArgs, {
           cwd: paths.installDir,
@@ -1623,11 +1622,16 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
     backgroundRemovalInstalling = false
     return backgroundRemovalRuntimeStatus()
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = backgroundRemovalInstallCancelled
+      ? '安装已暂停，已完成的下载缓存会保留。稍后可重新点击安装继续。'
+      : error instanceof Error ? error.message : String(error)
     publishBackgroundRemovalProgress({ phase: 'error', status: message, percent: 0, determinate: true })
+    if (backgroundRemovalInstallCancelled) throw new Error(message)
     throw error
   } finally {
     backgroundRemovalInstalling = false
+    backgroundRemovalInstallCancelled = false
+    backgroundRemovalInstallChild = null
   }
 }
 
@@ -2070,6 +2074,7 @@ ipcMain.handle('background-removal:pick-install-directory', async () => {
 ipcMain.handle('background-removal:install-runtime', (_, request: BackgroundRemovalInstallRequest) =>
   installBackgroundRemovalRuntime(request)
 )
+ipcMain.handle('background-removal:cancel-installation', () => cancelBackgroundRemovalInstallation())
 ipcMain.handle('background-removal:run', (_, path: string) => runBackgroundRemoval(path))
 ipcMain.handle('background-removal:copy-result', (_, path: string, dataUrl?: string) => {
   if (!dataUrl && (!path || !existsSync(path))) throw new Error('抠图结果不存在。')

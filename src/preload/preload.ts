@@ -45,6 +45,8 @@ const api = {
     ipcRenderer.invoke('background-removal:pick-install-directory'),
   installBackgroundRemovalRuntime: (request: BackgroundRemovalInstallRequest): Promise<BackgroundRemovalRuntimeStatus> =>
     ipcRenderer.invoke('background-removal:install-runtime', request),
+  cancelBackgroundRemovalInstallation: (): Promise<boolean> =>
+    ipcRenderer.invoke('background-removal:cancel-installation'),
   runBackgroundRemoval: (path: string): Promise<BackgroundRemovalResult> =>
     ipcRenderer.invoke('background-removal:run', path),
   copyBackgroundRemovalResult: (path: string, dataUrl?: string): Promise<void> =>

@@ -870,6 +870,10 @@ function App(): JSX.Element {
     }
   }
 
+  async function cancelBackgroundRemovalEnvironment(): Promise<void> {
+    await window.assetUploader.cancelBackgroundRemovalInstallation()
+  }
+
   async function runBackgroundRemovalDemo(): Promise<void> {
     if (!backgroundRemovalItem || backgroundRemovalBusy) return
     setBackgroundRemovalBusy(true)
@@ -1508,6 +1512,7 @@ function App(): JSX.Element {
           onInstallEnvironment={(accelerator, chooseDirectory) =>
             void installBackgroundRemovalEnvironment(accelerator, chooseDirectory)
           }
+          onCancelInstallation={() => void cancelBackgroundRemovalEnvironment()}
           onRun={() => void runBackgroundRemovalDemo()}
           onCopyResult={async (dataUrl) => {
             if (!backgroundRemovalResult) return
@@ -2623,6 +2628,7 @@ function BackgroundRemovalDemo({
   onPick,
   onClear,
   onInstallEnvironment,
+  onCancelInstallation,
   onRun,
   onCopyResult,
   onSaveEdit,
@@ -2638,6 +2644,7 @@ function BackgroundRemovalDemo({
   onPick: () => void
   onClear: () => void
   onInstallEnvironment: (accelerator: BackgroundRemovalAccelerator, chooseDirectory?: boolean) => void
+  onCancelInstallation: () => void
   onRun: () => void
   onCopyResult: (dataUrl?: string) => void
   onSaveEdit: (dataUrl: string) => void
@@ -3220,13 +3227,17 @@ function BackgroundRemovalDemo({
                 <div className={`h-2 bg-surface-variant rounded-full overflow-hidden ${progress.determinate ? '' : 'stitch-indeterminate'}`}>
                   <div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${progress.determinate ? progress.percent : 0}%` }} />
                 </div>
-                <p className="text-label-sm font-label-sm text-on-surface-variant">可以关闭窗口让它在后台继续；请勿从托盘退出。若软件被重启，再点安装会复用已下载缓存。</p>
+                <p className="text-label-sm font-label-sm text-on-surface-variant">下载和解压期间显示动态进度，不再扫描大型缓存目录。可以关闭窗口让它在后台继续；若重启软件，再点安装会复用已完成缓存。</p>
               </div>
             )}
             {!busy && progress.phase === 'error' && <p className="text-body-md font-body-md text-error">{progress.status}</p>}
             <div className="flex justify-end gap-3">
               <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(installAccelerator, true)} type="button"><FolderOpen size={17} />选择位置</button>
-              <button className="px-5 py-2.5 rounded-lg bg-primary text-on-primary text-label-lg font-label-lg hover:bg-primary/90 disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(installAccelerator, false)} type="button">{busy ? <Loader2 className="spin" size={18} /> : <ArrowDownToLine size={18} />}{busy ? '正在安装' : installAccelerator === 'cpu' ? '快速安装' : '安装 NVIDIA 版'}</button>
+              {busy ? (
+                <button className="px-5 py-2.5 rounded-lg border border-surface-variant bg-surface text-on-surface text-label-lg font-label-lg hover:bg-surface-container-low flex items-center gap-2" onClick={onCancelInstallation} type="button"><X size={18} />暂停安装</button>
+              ) : (
+                <button className="px-5 py-2.5 rounded-lg bg-primary text-on-primary text-label-lg font-label-lg hover:bg-primary/90 flex items-center gap-2" onClick={() => onInstallEnvironment(installAccelerator, false)} type="button"><ArrowDownToLine size={18} />{installAccelerator === 'cpu' ? '快速安装' : '安装 NVIDIA 版'}</button>
+              )}
             </div>
           </section>
         </div>
