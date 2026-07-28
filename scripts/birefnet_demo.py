@@ -34,40 +34,6 @@ def inference_size(width: int, height: int, max_side: int) -> tuple[int, int]:
 
 
 def ensure_model(model_id: str, cache_dir: Path) -> None:
-    if (cache_dir / MODEL_CACHE_NAME).exists():
-        return
-
-    from huggingface_hub import snapshot_download
-    from tqdm.auto import tqdm
-
-    class DownloadProgress(tqdm):
-        last_percent = -1
-
-        def update(self, amount: int | float = 1) -> bool | None:
-            displayed = super().update(amount)
-            if self.total and self.total > 1024 * 1024:
-                percent = max(0, min(100, int(self.n * 100 / self.total)))
-                if percent != DownloadProgress.last_percent:
-                    DownloadProgress.last_percent = percent
-                    emit(
-                        "download-progress",
-                        message=f"正在下载 BiRefNet 模型 {percent}%",
-                        progress=percent,
-                        determinate=True,
-                    )
-            return displayed
-
-    emit("download-progress", message="正在连接模型下载服务", progress=0, determinate=True)
-    snapshot_download(
-        model_id,
-        cache_dir=str(cache_dir),
-        max_workers=1,
-        tqdm_class=DownloadProgress,
-    )
-    emit("download-progress", message="模型下载完成", progress=100, determinate=True)
-
-
-def ensure_model(model_id: str, cache_dir: Path) -> None:
     model_dir = cache_dir / MODEL_CACHE_NAME
     snapshots_dir = model_dir / "snapshots"
     if snapshots_dir.exists() and any(snapshots_dir.iterdir()):

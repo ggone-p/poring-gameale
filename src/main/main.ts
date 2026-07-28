@@ -2,11 +2,11 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, scre
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import electronUpdater from 'electron-updater'
 import { extname, join, dirname, basename } from 'node:path'
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { constants as osConstants, setPriority } from 'node:os'
+import { arch, constants as osConstants, cpus, platform, release, setPriority, totalmem } from 'node:os'
 import sharp from 'sharp'
 import type {
   AppConfig,
@@ -61,6 +61,9 @@ const BACKGROUND_REMOVAL_HEIGHT = 1024
 const COLLAPSED_WIDTH = 118
 const COLLAPSED_HEIGHT = 118
 const SOFTWARE_DESIGNER = '方攀'
+const BUNDLED_UV_SHA256 = '23cf0f8194ff576562646a1a2950c6826249c8806cd1547debd24db77eb68f58'
+const BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL = 7
+const BACKGROUND_REMOVAL_RUNTIME_VERSION = '1'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -75,6 +78,9 @@ let suppressMoveSave = false
 let backgroundRemovalInstalling = false
 let backgroundRemovalInstallCancelled = false
 let backgroundRemovalInstallChild: ChildProcessWithoutNullStreams | null = null
+let backgroundRemovalInstallDiagnostics: string[] = []
+let backgroundRemovalLastInstallError = ''
+let backgroundRemovalInstallLogPath = ''
 
 let updateState = {
   phase: 'idle',
@@ -1260,15 +1266,46 @@ function backgroundRemovalPaths(): {
 
 function backgroundRemovalRuntimeStatus(): BackgroundRemovalRuntimeStatus {
   const paths = backgroundRemovalPaths()
-  const ready = existsSync(paths.pythonPath) && existsSync(paths.scriptPath)
+  let installedVersion = ''
+  try {
+    installedVersion = String((JSON.parse(readFileSync(paths.manifestPath, 'utf8')) as { version?: string }).version || '')
+  } catch {
+    // A missing or incomplete manifest means the interrupted installation still needs repair.
+  }
+  const ready =
+    existsSync(paths.pythonPath) &&
+    existsSync(paths.scriptPath) &&
+    installedVersion === BACKGROUND_REMOVAL_RUNTIME_VERSION
   const snapshotsDir = join(paths.cacheDir, 'models--ZhengPeng7--BiRefNet_dynamic', 'snapshots')
   const modelDownloaded = existsSync(snapshotsDir) && readdirSync(snapshotsDir).length > 0
+  let nvidiaAvailable = false
+  try {
+    execFileSync('nvidia-smi.exe', ['--query-gpu=name', '--format=csv,noheader'], {
+      windowsHide: true,
+      timeout: 5_000,
+      stdio: 'ignore'
+    })
+    nvidiaAvailable = true
+  } catch {
+    // CPU installation remains available.
+  }
+  let freeDiskBytes: number | undefined
+  try {
+    mkdirSync(paths.installDir, { recursive: true })
+    const disk = statfsSync(paths.installDir)
+    freeDiskBytes = Number(disk.bavail) * Number(disk.bsize)
+  } catch {
+    // The installer performs the same check again before downloading.
+  }
   return {
     ready,
     installing: backgroundRemovalInstalling,
     modelDownloaded,
     installDir: paths.installDir,
     modelDir: paths.cacheDir,
+    freeDiskBytes,
+    nvidiaAvailable,
+    version: installedVersion || undefined,
     message: ready
       ? modelDownloaded
         ? 'BiRefNet 模型已就绪'
@@ -1281,7 +1318,20 @@ function publishBackgroundRemovalProgress(progress: BackgroundRemovalProgress): 
   mainWindow?.webContents.send('background-removal:progress', progress)
 }
 
+function recordBackgroundRemovalDiagnostic(message: string): void {
+  const line = `[${new Date().toISOString()}] ${message.replace(/\r?\n/g, ' ')}`
+  backgroundRemovalInstallDiagnostics = [...backgroundRemovalInstallDiagnostics.slice(-799), line]
+  if (backgroundRemovalInstallLogPath) {
+    try {
+      appendFileSync(backgroundRemovalInstallLogPath, `${line}\r\n`, 'utf8')
+    } catch {
+      // In-memory diagnostics remain available when the selected drive becomes unavailable.
+    }
+  }
+}
+
 async function downloadRuntimeFile(url: string, targetPath: string): Promise<void> {
+  recordBackgroundRemovalDiagnostic(`Download: ${url} -> ${targetPath}`)
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok || !response.body) throw new Error(`下载失败：HTTP ${response.status}`)
   const total = Number(response.headers.get('content-length') || 0)
@@ -1301,7 +1351,10 @@ async function downloadRuntimeFile(url: string, targetPath: string): Promise<voi
       status: `正在下载安装工具${total ? ` ${Math.round(received * 100 / total)}%` : ''}`,
       percent: total ? Math.min(15, Math.round(received * 15 / total)) : 5,
       determinate: total > 0,
-      speedBytesPerSecond: Math.round(received / seconds)
+      speedBytesPerSecond: Math.round(received / seconds),
+      stage: '准备安装工具',
+      stageIndex: 2,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
     })
   }
   writeFileSync(targetPath, Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
@@ -1313,6 +1366,7 @@ async function runRuntimeCommand(
   options: { cwd: string; env?: NodeJS.ProcessEnv; onLine?: (line: string) => void; timeoutMs?: number }
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
+    recordBackgroundRemovalDiagnostic(`Command: ${command} ${args.join(' ')}`)
     const child = spawn(command, args, {
       cwd: options.cwd,
       windowsHide: true,
@@ -1332,7 +1386,7 @@ async function runRuntimeCommand(
     const timeout = options.timeoutMs
       ? setTimeout(() => {
           timedOut = true
-          child.kill()
+          terminateRuntimeProcess(child)
         }, options.timeoutMs)
       : null
     const clearCommandTimeout = (): void => {
@@ -1344,12 +1398,16 @@ async function runRuntimeCommand(
       output += text
       const lines = output.split(/\r\n?|\n/)
       output = lines.pop() || ''
-      lines.forEach((line) => options.onLine?.(line))
+      lines.forEach((line) => {
+        if (line.trim()) recordBackgroundRemovalDiagnostic(`${isError ? 'stderr' : 'stdout'}: ${line.trim()}`)
+        options.onLine?.(line)
+      })
     }
     child.stdout.on('data', (chunk: Buffer) => consume(chunk))
     child.stderr.on('data', (chunk: Buffer) => consume(chunk, true))
     child.on('error', (error) => {
       clearCommandTimeout()
+      recordBackgroundRemovalDiagnostic(`Process error: ${error.message}`)
       reject(error)
     })
     child.on('close', (code) => {
@@ -1361,21 +1419,114 @@ async function runRuntimeCommand(
         return
       }
       if (code === 0) resolve()
-      else reject(new Error(errorOutput.trim() || `安装命令失败（退出码 ${code ?? 'unknown'}）`))
+      else {
+        recordBackgroundRemovalDiagnostic(`Command failed with exit code ${code ?? 'unknown'}`)
+        reject(new Error(errorOutput.trim() || `安装命令失败（退出码 ${code ?? 'unknown'}）`))
+      }
     })
   })
+}
+
+function terminateRuntimeProcess(child: ChildProcessWithoutNullStreams): void {
+  if (child.killed) return
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        timeout: 10_000,
+        stdio: 'ignore'
+      })
+      return
+    } catch {
+      // Fall back to the direct child when the process already exited or taskkill is restricted.
+    }
+  }
+  child.kill()
+}
+
+function formatDiagnosticBytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+}
+
+function exportBackgroundRemovalDiagnostics(): string {
+  const paths = backgroundRemovalPaths()
+  const persistedLogPath = join(paths.installDir, 'install.log')
+  let diskSummary = '不可用'
+  try {
+    mkdirSync(paths.installDir, { recursive: true })
+    const disk = statfsSync(paths.installDir)
+    diskSummary = `${formatDiagnosticBytes(Number(disk.bavail) * Number(disk.bsize))} 可用 / ${formatDiagnosticBytes(Number(disk.blocks) * Number(disk.bsize))} 总计`
+  } catch (error) {
+    diskSummary = `读取失败：${error instanceof Error ? error.message : String(error)}`
+  }
+  let gpuSummary = '未检测到或 nvidia-smi 不可用'
+  try {
+    gpuSummary = execFileSync('nvidia-smi.exe', [
+      '--query-gpu=name,driver_version,memory.total',
+      '--format=csv,noheader'
+    ], { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).trim()
+  } catch {
+    // The report remains useful on CPU-only machines.
+  }
+  const fileState = [
+    ['Python', paths.pythonPath],
+    ['推理脚本', paths.scriptPath],
+    ['模型目录', paths.cacheDir],
+    ['运行清单', paths.manifestPath],
+    ['uv', join(paths.installDir, 'tools', 'uv.exe')],
+    ['安装日志', persistedLogPath]
+  ].map(([label, path]) => `${label}: ${existsSync(path) ? '存在' : '缺失'} | ${path}`)
+  let diagnosticLines = backgroundRemovalInstallDiagnostics
+  if (existsSync(persistedLogPath)) {
+    try {
+      diagnosticLines = readFileSync(persistedLogPath, 'utf8').split(/\r?\n/).filter(Boolean).slice(-800)
+    } catch {
+      // Fall back to the current process's in-memory log.
+    }
+  }
+  const report = [
+    '波利AI图助手 - 本地 AI 环境安装诊断报告',
+    `生成时间: ${new Date().toLocaleString('zh-CN')}`,
+    '',
+    '【软件与系统】',
+    `软件版本: ${app.getVersion()}`,
+    `运行模式: ${app.isPackaged ? '安装版' : '开发版'}`,
+    `系统: ${platform()} ${release()} ${arch()}`,
+    `CPU: ${cpus()[0]?.model || '未知'} | ${cpus().length} 逻辑处理器`,
+    `内存: ${formatDiagnosticBytes(totalmem())}`,
+    `GPU: ${gpuSummary}`,
+    '',
+    '【安装位置】',
+    `数据目录: ${paths.installDir}`,
+    `磁盘空间: ${diskSummary}`,
+    ...fileState,
+    '',
+    '【最近一次错误】',
+    backgroundRemovalLastInstallError || '未记录',
+    '',
+    '【安装过程日志（最近 800 行）】',
+    ...(diagnosticLines.length ? diagnosticLines : ['未记录安装日志'])
+  ].join('\r\n')
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-')
+  const reportPath = join(app.getPath('desktop'), `波利AI图助手-安装诊断-${timestamp}.txt`)
+  writeFileSync(reportPath, report, 'utf8')
+  shell.showItemInFolder(reportPath)
+  return reportPath
 }
 
 function cancelBackgroundRemovalInstallation(): boolean {
   if (!backgroundRemovalInstalling) return false
   backgroundRemovalInstallCancelled = true
   const child = backgroundRemovalInstallChild
-  if (child && !child.killed) child.kill()
+  if (child && !child.killed) terminateRuntimeProcess(child)
   publishBackgroundRemovalProgress({
     phase: 'error',
     status: '安装已暂停，已完成的下载缓存会保留。稍后可重新点击安装继续。',
     percent: 0,
-    determinate: true
+    determinate: true,
+    stage: '安装已暂停',
+    stageIndex: 0,
+    stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
   })
   return true
 }
@@ -1391,7 +1542,7 @@ async function hasNvidiaGpu(): Promise<boolean> {
   }
 }
 
-async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
+async function tryAdoptExistingBackgroundRemovalRuntime(accelerator: BackgroundRemovalInstallRequest['accelerator']): Promise<boolean> {
   const paths = backgroundRemovalPaths()
   const snapshotsDir = join(paths.cacheDir, 'models--ZhengPeng7--BiRefNet_dynamic', 'snapshots')
   if (!existsSync(paths.pythonPath) || !existsSync(snapshotsDir) || readdirSync(snapshotsDir).length === 0) {
@@ -1408,12 +1559,15 @@ async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
     phase: 'verifying',
     status: '正在校验已有本地 AI 环境',
     percent: 70,
-    determinate: true
+    determinate: true,
+    stage: '检测已有环境',
+    stageIndex: 1,
+    stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
   })
   try {
     await runRuntimeCommand(
       paths.pythonPath,
-      ['-c', 'import torch, transformers, PIL, timm, kornia; print(torch.__version__)'],
+      ['-c', `import torch, transformers, PIL, timm, kornia; ${accelerator === 'nvidia' ? "assert torch.cuda.is_available(), 'CUDA unavailable'; " : ''}print(torch.__version__)`],
       { cwd: paths.installDir }
     )
   } catch {
@@ -1421,8 +1575,9 @@ async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
   }
 
   writeFileSync(paths.manifestPath, JSON.stringify({
-    version: '1',
+    version: BACKGROUND_REMOVAL_RUNTIME_VERSION,
     model: 'ZhengPeng7/BiRefNet_dynamic',
+    gpu: accelerator,
     adopted: true,
     installedAt: new Date().toISOString()
   }, null, 2), 'utf8')
@@ -1430,7 +1585,10 @@ async function tryAdoptExistingBackgroundRemovalRuntime(): Promise<boolean> {
     phase: 'complete',
     status: '已复用现有本地 AI 抠图环境，无需重复下载',
     percent: 100,
-    determinate: true
+    determinate: true,
+    stage: '安装完成',
+    stageIndex: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL,
+    stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
   })
   return true
 }
@@ -1439,6 +1597,8 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
   if (backgroundRemovalInstalling) throw new Error('本地 AI 环境正在安装，请勿重复启动。')
   backgroundRemovalInstalling = true
   backgroundRemovalInstallCancelled = false
+  backgroundRemovalInstallDiagnostics = []
+  backgroundRemovalLastInstallError = ''
   try {
     const requestedDir = request.installDir
     const accelerator = request.accelerator
@@ -1446,9 +1606,29 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
     const paths = backgroundRemovalPaths()
     mkdirSync(paths.installDir, { recursive: true })
     mkdirSync(paths.cacheDir, { recursive: true })
-    if (await tryAdoptExistingBackgroundRemovalRuntime()) {
+    backgroundRemovalInstallLogPath = join(paths.installDir, 'install.log')
+    writeFileSync(backgroundRemovalInstallLogPath, '', 'utf8')
+    recordBackgroundRemovalDiagnostic(`Install started: accelerator=${request.accelerator}, installDir=${paths.installDir}`)
+    publishBackgroundRemovalProgress({
+      phase: 'verifying',
+      status: '正在检查磁盘空间、显卡和已有环境',
+      percent: 2,
+      determinate: true,
+      stage: '检查安装条件',
+      stageIndex: 1,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+    })
+    if (await tryAdoptExistingBackgroundRemovalRuntime(accelerator)) {
       backgroundRemovalInstalling = false
       return backgroundRemovalRuntimeStatus()
+    }
+    const requiredFreeBytes = accelerator === 'nvidia' ? 12 * 1024 ** 3 : 6 * 1024 ** 3
+    const disk = statfsSync(paths.installDir)
+    const freeDiskBytes = Number(disk.bavail) * Number(disk.bsize)
+    if (freeDiskBytes < requiredFreeBytes) {
+      const requiredGb = Math.ceil(requiredFreeBytes / 1024 ** 3)
+      const freeGb = Math.max(0, freeDiskBytes / 1024 ** 3).toFixed(1)
+      throw new Error(`安装位置剩余空间仅 ${freeGb} GB，${accelerator === 'nvidia' ? 'NVIDIA' : 'CPU'} 环境安装过程至少需要 ${requiredGb} GB。请点“选择位置”改到空间充足的磁盘。`)
     }
     const toolsDir = join(paths.installDir, 'tools')
     mkdirSync(toolsDir, { recursive: true })
@@ -1457,29 +1637,68 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
       UV_CACHE_DIR: join(paths.installDir, '.uv-cache'),
       UV_PYTHON_INSTALL_DIR: join(paths.installDir, 'python'),
       UV_PYTHON_PREFERENCE: 'only-managed',
-      UV_HTTP_CONNECT_TIMEOUT: '15',
-      UV_HTTP_TIMEOUT: '60',
-      UV_HTTP_RETRIES: '2',
+      UV_HTTP_CONNECT_TIMEOUT: '30',
+      UV_HTTP_TIMEOUT: '300',
+      UV_HTTP_RETRIES: '5',
       UV_LOCK_TIMEOUT: '5',
       UV_CONCURRENT_DOWNLOADS: '2',
       UV_CONCURRENT_INSTALLS: '1',
       UV_CONCURRENT_BUILDS: '1',
-      UV_NO_PROGRESS: '1'
+      UV_NO_PROGRESS: '1',
+      HF_HUB_ETAG_TIMEOUT: '30',
+      HF_HUB_DOWNLOAD_TIMEOUT: '300'
     }
 
     if (!existsSync(uvPath)) {
       const archivePath = join(paths.installDir, 'uv-windows.zip')
+      const bundledArchivePath = app.isPackaged
+        ? join(process.resourcesPath, 'runtime-tools', 'uv-windows.zip')
+        : join(app.getAppPath(), 'build', 'runtime-tools', 'uv-windows.zip')
       const uvUrl = 'https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip'
-      publishBackgroundRemovalProgress({ phase: 'downloading', status: '正在下载 Python 环境安装工具', percent: 1, determinate: false })
-      await downloadRuntimeFile(uvUrl, archivePath)
-      const checksumResponse = await fetch(`${uvUrl}.sha256`, { redirect: 'follow' })
-      if (!checksumResponse.ok) throw new Error('无法获取安装工具校验文件。')
-      const expectedHash = (await checksumResponse.text()).trim().split(/\s+/)[0]?.toLowerCase()
-      const actualHash = createHash('sha256').update(readFileSync(archivePath)).digest('hex')
-      if (!expectedHash || actualHash !== expectedHash) throw new Error('安装工具校验失败，请重试。')
-      publishBackgroundRemovalProgress({ phase: 'verifying', status: '安装工具校验完成，正在解压', percent: 16, determinate: true })
+      let expectedUvHash = BUNDLED_UV_SHA256
+      if (existsSync(bundledArchivePath)) {
+        publishBackgroundRemovalProgress({
+          phase: 'installing',
+          status: '正在准备内置 Python 环境安装工具',
+          percent: 8,
+          determinate: true,
+          stage: '准备安装工具',
+          stageIndex: 2,
+          stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+        })
+        recordBackgroundRemovalDiagnostic(`Using bundled uv archive: ${bundledArchivePath}`)
+        copyFileSync(bundledArchivePath, archivePath)
+      } else {
+        publishBackgroundRemovalProgress({
+          phase: 'downloading',
+          status: '正在下载 Python 环境安装工具',
+          percent: 5,
+          determinate: false,
+          stage: '准备安装工具',
+          stageIndex: 2,
+          stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+        })
+        await downloadRuntimeFile(uvUrl, archivePath)
+        const checksumResponse = await fetch(`${uvUrl}.sha256`, { redirect: 'follow' })
+        if (!checksumResponse.ok) throw new Error('无法获取安装工具校验文件。')
+        expectedUvHash = (await checksumResponse.text()).trim().split(/\s+/)[0]?.toLowerCase() || ''
+      }
+      publishBackgroundRemovalProgress({
+        phase: 'verifying',
+        status: '安装工具校验完成，正在解压',
+        percent: 16,
+        determinate: true,
+        stage: '准备安装工具',
+        stageIndex: 2,
+        stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+      })
       await runRuntimeCommand('tar.exe', ['-xf', archivePath, '-C', toolsDir], { cwd: paths.installDir })
       rmSync(archivePath, { force: true })
+      const actualUvHash = createHash('sha256').update(readFileSync(uvPath)).digest('hex')
+      if (!expectedUvHash || actualUvHash !== expectedUvHash) {
+        rmSync(uvPath, { force: true })
+        throw new Error('安装工具校验失败，请重新安装波利AI图助手后重试。')
+      }
     }
 
     const useNvidia = accelerator === 'nvidia'
@@ -1493,7 +1712,10 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
         phase: 'verifying',
         status: '正在检查已有 Python 推理环境',
         percent: 20,
-        determinate: true
+        determinate: true,
+        stage: '准备 Python 环境',
+        stageIndex: 3,
+        stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
       })
       try {
         await runRuntimeCommand(
@@ -1513,7 +1735,10 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
         phase: 'installing',
         status: existsSync(venvDir) ? '正在修复未完成的 Python 环境' : '正在准备独立 Python 3.11 环境',
         percent: 20,
-        determinate: true
+        determinate: true,
+        stage: '准备 Python 环境',
+        stageIndex: 3,
+        stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
       })
       const venvArgs = ['venv']
       if (existsSync(venvDir)) venvArgs.push('--clear')
@@ -1526,10 +1751,14 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
       publishBackgroundRemovalProgress({
         phase: 'installing',
         status: useNvidia
-          ? '正在下载 PyTorch NVIDIA 版（约 2.56 GB）'
+          ? '正在下载并安装 PyTorch NVIDIA 版（下载约 4.3 GB）'
           : '正在下载 PyTorch CPU 兼容版（约 120 MB）',
         percent: 35,
-        determinate: false
+        determinate: false,
+        stage: '安装 PyTorch',
+        stageIndex: 4,
+        stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL,
+        estimated: true
       })
       const torchArgs = ['pip', 'install', '--python', paths.pythonPath, 'torch', 'torchvision', '--index-url', useNvidia
         ? 'https://download.pytorch.org/whl/cu128'
@@ -1538,14 +1767,20 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
       let latestDetail = ''
       const publishTorchProgress = (): void => {
         const elapsedSeconds = Math.max(0, Math.round((Date.now() - torchStartedAt) / 1000))
+        const expectedSeconds = useNvidia ? 12 * 60 : 3 * 60
+        const estimatedPercent = 35 + Math.min(25, Math.floor(elapsedSeconds * 25 / expectedSeconds))
         const elapsedText = elapsedSeconds >= 60
           ? `${Math.floor(elapsedSeconds / 60)}分${elapsedSeconds % 60}秒`
           : `${elapsedSeconds}秒`
         publishBackgroundRemovalProgress({
           phase: 'installing',
           status: `${useNvidia ? 'NVIDIA' : 'CPU'} 环境 · ${latestDetail || '正在下载并解压 PyTorch'} · 已用时 ${elapsedText}`,
-          percent: 35,
-          determinate: false
+          percent: estimatedPercent,
+          determinate: false,
+          stage: '安装 PyTorch',
+          stageIndex: 4,
+          stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL,
+          estimated: true
         })
       }
       publishTorchProgress()
@@ -1557,14 +1792,25 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
           timeoutMs: useNvidia ? 45 * 60_000 : 12 * 60_000,
           onLine: (line) => {
             const detail = line.replace(/\x1b\[[0-9;]*m/g, '').trim()
-            if (detail) latestDetail = detail.slice(0, 80)
+            if (/^Resolved\b/i.test(detail)) latestDetail = '依赖分析完成，正在下载文件'
+            else if (/^Prepared\b/i.test(detail)) latestDetail = '下载完成，正在解压安装'
+            else if (/^Installed\b/i.test(detail)) latestDetail = 'PyTorch 安装完成'
+            else if (detail) latestDetail = detail.slice(0, 80)
           }
         })
       } finally {
         clearInterval(progressTimer)
       }
 
-      publishBackgroundRemovalProgress({ phase: 'installing', status: '正在安装 BiRefNet 推理依赖', percent: 62, determinate: true })
+      publishBackgroundRemovalProgress({
+        phase: 'installing',
+        status: '正在安装 BiRefNet 推理依赖',
+        percent: 62,
+        determinate: true,
+        stage: '安装推理依赖',
+        stageIndex: 5,
+        stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+      })
       await runRuntimeCommand(
         uvPath,
         ['pip', 'install', '--python', paths.pythonPath, 'transformers>=4.46,<5', 'pillow', 'safetensors', 'huggingface-hub', 'timm', 'kornia', 'einops', 'tqdm'],
@@ -1575,7 +1821,10 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
         phase: 'installing',
         status: '已复用现有 Python 推理环境',
         percent: 68,
-        determinate: true
+        determinate: true,
+        stage: '安装推理依赖',
+        stageIndex: 5,
+        stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
       })
     }
 
@@ -1585,7 +1834,15 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
     if (!existsSync(bundledScript)) throw new Error('软件缺少 BiRefNet 推理脚本，请重新安装波利助手。')
     if (bundledScript !== paths.scriptPath) copyFileSync(bundledScript, paths.scriptPath)
 
-    publishBackgroundRemovalProgress({ phase: 'downloading', status: '正在下载 BiRefNet 开源模型', percent: 72, determinate: false })
+    publishBackgroundRemovalProgress({
+      phase: 'downloading',
+      status: '正在连接 BiRefNet 模型下载服务',
+      percent: 72,
+      determinate: false,
+      stage: '下载 BiRefNet 模型',
+      stageIndex: 6,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+    })
     await runRuntimeCommand(paths.pythonPath, [paths.scriptPath, '--prepare-only', '--cache-dir', paths.cacheDir], {
       cwd: paths.installDir,
       env: runtimeEnv,
@@ -1598,7 +1855,10 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
             phase: 'downloading',
             status: String(payload.message || '正在下载 BiRefNet 开源模型'),
             percent: 72 + Math.round(modelPercent * 0.23),
-            determinate: payload.determinate !== false
+            determinate: payload.determinate !== false,
+            stage: '下载 BiRefNet 模型',
+            stageIndex: 6,
+            stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
           })
         } catch {
           // Ignore model-loader diagnostics.
@@ -1606,26 +1866,70 @@ async function installBackgroundRemovalRuntime(request: BackgroundRemovalInstall
       }
     })
 
-    publishBackgroundRemovalProgress({ phase: 'verifying', status: '正在校验本地 AI 环境', percent: 97, determinate: true })
+    publishBackgroundRemovalProgress({
+      phase: 'verifying',
+      status: '正在校验本地 AI 环境',
+      percent: 97,
+      determinate: true,
+      stage: '校验并清理',
+      stageIndex: 7,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+    })
     await runRuntimeCommand(
       paths.pythonPath,
       ['-c', 'import torch, transformers, PIL, timm, kornia; print(torch.__version__)'],
       { cwd: paths.installDir, env: runtimeEnv }
     )
+    publishBackgroundRemovalProgress({
+      phase: 'verifying',
+      status: '正在清理安装缓存，释放磁盘空间',
+      percent: 99,
+      determinate: true,
+      stage: '校验并清理',
+      stageIndex: 7,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+    })
+    try {
+      await runRuntimeCommand(uvPath, ['cache', 'prune', '--ci'], {
+        cwd: paths.installDir,
+        env: runtimeEnv,
+        timeoutMs: 5 * 60_000
+      })
+    } catch {
+      // Cache cleanup is an optimization and must not invalidate an otherwise usable runtime.
+    }
     writeFileSync(paths.manifestPath, JSON.stringify({
-      version: '1',
+      version: BACKGROUND_REMOVAL_RUNTIME_VERSION,
       model: 'ZhengPeng7/BiRefNet_dynamic',
       gpu: useNvidia ? 'nvidia' : 'cpu',
       installedAt: new Date().toISOString()
     }, null, 2), 'utf8')
-    publishBackgroundRemovalProgress({ phase: 'complete', status: '本地 AI 抠图环境安装完成', percent: 100, determinate: true })
+    publishBackgroundRemovalProgress({
+      phase: 'complete',
+      status: '本地 AI 抠图环境安装完成',
+      percent: 100,
+      determinate: true,
+      stage: '安装完成',
+      stageIndex: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+    })
     backgroundRemovalInstalling = false
     return backgroundRemovalRuntimeStatus()
   } catch (error) {
     const message = backgroundRemovalInstallCancelled
       ? '安装已暂停，已完成的下载缓存会保留。稍后可重新点击安装继续。'
       : error instanceof Error ? error.message : String(error)
-    publishBackgroundRemovalProgress({ phase: 'error', status: message, percent: 0, determinate: true })
+    backgroundRemovalLastInstallError = message
+    recordBackgroundRemovalDiagnostic(`Install failed: ${message}`)
+    publishBackgroundRemovalProgress({
+      phase: 'error',
+      status: message,
+      percent: 0,
+      determinate: true,
+      stage: backgroundRemovalInstallCancelled ? '安装已暂停' : '安装失败',
+      stageIndex: 0,
+      stageTotal: BACKGROUND_REMOVAL_INSTALL_STAGE_TOTAL
+    })
     if (backgroundRemovalInstallCancelled) throw new Error(message)
     throw error
   } finally {
@@ -1890,11 +2194,35 @@ type GitHubRelease = {
 }
 
 function compareVersions(left: string, right: string): number {
-  const leftParts = left.replace(/^v/i, '').split('.').map((part) => Number(part) || 0)
-  const rightParts = right.replace(/^v/i, '').split('.').map((part) => Number(part) || 0)
-  const length = Math.max(leftParts.length, rightParts.length)
+  const parse = (value: string): { core: number[]; prerelease: string[] } => {
+    const match = value.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/)
+    return match
+      ? {
+          core: [Number(match[1]), Number(match[2]), Number(match[3])],
+          prerelease: match[4]?.split('.') || []
+        }
+      : { core: [0, 0, 0], prerelease: [] }
+  }
+  const leftVersion = parse(left)
+  const rightVersion = parse(right)
+  for (let index = 0; index < 3; index += 1) {
+    const diff = leftVersion.core[index] - rightVersion.core[index]
+    if (diff !== 0) return diff
+  }
+  if (!leftVersion.prerelease.length && rightVersion.prerelease.length) return 1
+  if (leftVersion.prerelease.length && !rightVersion.prerelease.length) return -1
+  const length = Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length)
   for (let index = 0; index < length; index += 1) {
-    const diff = (leftParts[index] || 0) - (rightParts[index] || 0)
+    const leftPart = leftVersion.prerelease[index]
+    const rightPart = rightVersion.prerelease[index]
+    if (leftPart === undefined) return -1
+    if (rightPart === undefined) return 1
+    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : null
+    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : null
+    if (leftNumber !== null && rightNumber !== null && leftNumber !== rightNumber) return leftNumber - rightNumber
+    if (leftNumber !== null && rightNumber === null) return -1
+    if (leftNumber === null && rightNumber !== null) return 1
+    const diff = leftPart.localeCompare(rightPart)
     if (diff !== 0) return diff
   }
   return 0
@@ -2007,6 +2335,10 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  if (backgroundRemovalInstallChild && !backgroundRemovalInstallChild.killed) {
+    backgroundRemovalInstallCancelled = true
+    terminateRuntimeProcess(backgroundRemovalInstallChild)
+  }
   mediaServer?.close()
 })
 
@@ -2075,6 +2407,7 @@ ipcMain.handle('background-removal:install-runtime', (_, request: BackgroundRemo
   installBackgroundRemovalRuntime(request)
 )
 ipcMain.handle('background-removal:cancel-installation', () => cancelBackgroundRemovalInstallation())
+ipcMain.handle('background-removal:export-diagnostics', () => exportBackgroundRemovalDiagnostics())
 ipcMain.handle('background-removal:run', (_, path: string) => runBackgroundRemoval(path))
 ipcMain.handle('background-removal:copy-result', (_, path: string, dataUrl?: string) => {
   if (!dataUrl && (!path || !existsSync(path))) throw new Error('抠图结果不存在。')

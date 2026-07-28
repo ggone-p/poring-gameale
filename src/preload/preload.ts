@@ -47,6 +47,8 @@ const api = {
     ipcRenderer.invoke('background-removal:install-runtime', request),
   cancelBackgroundRemovalInstallation: (): Promise<boolean> =>
     ipcRenderer.invoke('background-removal:cancel-installation'),
+  exportBackgroundRemovalDiagnostics: (): Promise<string> =>
+    ipcRenderer.invoke('background-removal:export-diagnostics'),
   runBackgroundRemoval: (path: string): Promise<BackgroundRemovalResult> =>
     ipcRenderer.invoke('background-removal:run', path),
   copyBackgroundRemovalResult: (path: string, dataUrl?: string): Promise<void> =>

@@ -11,6 +11,7 @@ import {
   Copy,
   Database,
   Eraser,
+  FileDown,
   FileImage,
   FolderOpen,
   FolderCog,
@@ -282,7 +283,6 @@ function App(): JSX.Element {
       setCollapsed(next.window.collapsed)
     })
   }, [])
-
   useEffect(() => {
     return window.assetUploader.onWindowState((state) => {
       const nextCollapsed = state === 'collapsed'
@@ -977,7 +977,8 @@ function App(): JSX.Element {
           : {
               ...item,
               options: { ...sourceOptions },
-              status: item.status === 'completed' ? 'waiting' : item.status,
+              status: 'waiting',
+              preview: undefined,
               outputPath: undefined,
               outputSize: undefined,
               error: '',
@@ -1513,6 +1514,10 @@ function App(): JSX.Element {
             void installBackgroundRemovalEnvironment(accelerator, chooseDirectory)
           }
           onCancelInstallation={() => void cancelBackgroundRemovalEnvironment()}
+          onExportDiagnostics={async () => {
+            const reportPath = await window.assetUploader.exportBackgroundRemovalDiagnostics()
+            if (reportPath) setBackgroundRemovalStatus(`诊断报告已保存：${reportPath}`)
+          }}
           onRun={() => void runBackgroundRemovalDemo()}
           onCopyResult={async (dataUrl) => {
             if (!backgroundRemovalResult) return
@@ -1642,7 +1647,6 @@ function App(): JSX.Element {
       </header>
 
       <UpdateToast state={updateState} onInstall={() => void window.assetUploader.installUpdate()} />
-
       {settingsOpen ? (
         <SettingsPanel
           config={config}
@@ -2591,25 +2595,13 @@ function ToolboxViewV2({
           <small>...</small>
         </div>
 
-          <div className="toolbox-preview-v2">
-            <div className="toolbox-product-shot-v2" aria-label="波利AI图助手主界面预览">
-              <div className="shot-title-v2">
-                <span>FP</span>
-                <strong>ROC平面 🎨</strong>
-                <span>→ ☆ →</span>
-              </div>
-              <div className="shot-sidebar-v2">
-                <strong>☁ 上传队列</strong>
-                <small>暂无图片</small>
-              </div>
-              <div className="shot-canvas-v2">
-                <span>拖入图片后显示预览</span>
-              </div>
-              <div className="shot-panel-v2">
-                <strong>叠加图层</strong>
-                <small>选择图片后可设置 Logo / Slogan / Icon</small>
-              </div>
-            </div>
+          <div className="toolbox-card-v2 disabled wide">
+            <span className="toolbox-card-icon-v2">
+              <WandSparkles size={22} />
+            </span>
+            <em>开发中</em>
+            <strong>开发中</strong>
+            <small>更多图片工具将在后续版本中加入。</small>
           </div>
         </section>
       </div>
@@ -2629,6 +2621,7 @@ function BackgroundRemovalDemo({
   onClear,
   onInstallEnvironment,
   onCancelInstallation,
+  onExportDiagnostics,
   onRun,
   onCopyResult,
   onSaveEdit,
@@ -2645,6 +2638,7 @@ function BackgroundRemovalDemo({
   onClear: () => void
   onInstallEnvironment: (accelerator: BackgroundRemovalAccelerator, chooseDirectory?: boolean) => void
   onCancelInstallation: () => void
+  onExportDiagnostics: () => void
   onRun: () => void
   onCopyResult: (dataUrl?: string) => void
   onSaveEdit: (dataUrl: string) => void
@@ -2673,6 +2667,7 @@ function BackgroundRemovalDemo({
   const [refining, setRefining] = useState(false)
   const [historyVersion, setHistoryVersion] = useState(0)
   const [installAccelerator, setInstallAccelerator] = useState<BackgroundRemovalAccelerator>('cpu')
+  const [installAcceleratorChosen, setInstallAcceleratorChosen] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const editCanvasRef = useRef<HTMLCanvasElement>(null)
   const originalImageRef = useRef<HTMLImageElement | null>(null)
@@ -2688,6 +2683,11 @@ function BackgroundRemovalDemo({
   const revealAnimationRef = useRef<number | null>(null)
   const animatedResultRef = useRef('')
   const canvasPanGestureRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (installAcceleratorChosen || !runtime) return
+    setInstallAccelerator(runtime.nvidiaAvailable ? 'nvidia' : 'cpu')
+  }, [installAcceleratorChosen, runtime?.nvidiaAvailable])
 
   const stopRevealAnimation = (): void => {
     if (revealAnimationRef.current !== null) {
@@ -3171,7 +3171,7 @@ function BackgroundRemovalDemo({
 
       {runtime && !runtime.ready && (
         <div className="absolute inset-x-0 top-14 bottom-0 z-50 bg-surface-container-lowest/95 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-3 sm:p-5">
-          <section className="my-auto w-full max-w-xl max-h-full overflow-y-auto bg-surface rounded-2xl border border-surface-variant shadow-xl p-5 sm:p-6 space-y-4">
+          <section className="my-0 w-full max-w-xl max-h-full overflow-y-auto bg-surface rounded-2xl border border-surface-variant shadow-xl p-5 sm:p-6 space-y-4">
             <div className="flex items-start gap-4">
               <div className="w-11 h-11 rounded-xl bg-surface-container-low flex items-center justify-center text-primary flex-shrink-0">
                 <Database size={23} />
@@ -3184,6 +3184,18 @@ function BackgroundRemovalDemo({
             <div className="rounded-xl bg-surface-container-low px-4 py-3 space-y-1">
               <div className="text-label-sm font-label-sm text-on-surface-variant">数据目录（推荐）</div>
               <div className="text-body-md font-body-md text-on-surface break-all">{runtime.installDir}</div>
+              {typeof runtime.freeDiskBytes === 'number' && (
+                <div className={`text-label-sm font-label-sm ${
+                  runtime.freeDiskBytes < (installAccelerator === 'nvidia' ? 12 : 6) * 1024 ** 3
+                    ? 'text-error'
+                    : 'text-on-surface-variant'
+                }`}>
+                  可用空间 {formatBytes(runtime.freeDiskBytes)}
+                  {runtime.freeDiskBytes < (installAccelerator === 'nvidia' ? 12 : 6) * 1024 ** 3
+                    ? ` · ${installAccelerator === 'nvidia' ? 'NVIDIA' : 'CPU'} 安装空间不足，请更换位置`
+                    : ''}
+                </div>
+              )}
               <div className="text-label-sm font-label-sm text-on-surface-variant">已有环境可直接选择，不重复下载。</div>
             </div>
             {!busy && (
@@ -3195,7 +3207,10 @@ function BackgroundRemovalDemo({
                       ? 'border-primary bg-primary/5 ring-1 ring-primary'
                       : 'border-surface-variant hover:bg-surface-container-low'
                   }`}
-                  onClick={() => setInstallAccelerator('cpu')}
+                  onClick={() => {
+                    setInstallAcceleratorChosen(true)
+                    setInstallAccelerator('cpu')
+                  }}
                   type="button"
                 >
                   <strong className="block text-body-md font-semibold">快速兼容安装</strong>
@@ -3209,29 +3224,53 @@ function BackgroundRemovalDemo({
                       ? 'border-primary bg-primary/5 ring-1 ring-primary'
                       : 'border-surface-variant hover:bg-surface-container-low'
                   }`}
-                  onClick={() => setInstallAccelerator('nvidia')}
+                  onClick={() => {
+                    setInstallAcceleratorChosen(true)
+                    setInstallAccelerator('nvidia')
+                  }}
                   type="button"
                 >
-                  <strong className="block text-body-md font-semibold">NVIDIA 加速安装</strong>
-                  <span className="mt-1 block text-label-sm text-on-surface-variant">GPU · PyTorch 约 2.56 GB</span>
-                  <span className="mt-1 block text-label-sm text-on-surface-variant">下载较慢，抠图速度更快</span>
+                  <strong className="flex items-center gap-2 text-body-md font-semibold">
+                    NVIDIA 加速安装
+                    {runtime.nvidiaAvailable && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-label-sm text-primary">推荐</span>}
+                  </strong>
+                  <span className="mt-1 block text-label-sm text-on-surface-variant">GPU · PyTorch 下载约 4.3 GB</span>
+                  <span className="mt-1 block text-label-sm text-on-surface-variant">安装需约 12 GB 临时空间，完成后自动清理</span>
                 </button>
               </div>
             )}
             {busy && (
-              <div className="space-y-2">
-                <div className="flex justify-between gap-4 text-label-lg font-label-lg">
-                  <span className="truncate">{progress.status || '正在准备安装'}</span>
-                  <span className="whitespace-nowrap">{progress.determinate ? `${Math.round(progress.percent)}%` : ''}{progress.speedBytesPerSecond ? ` · ${formatBytes(progress.speedBytesPerSecond)}/s` : ''}</span>
+              <div className="space-y-3 rounded-xl border border-surface-variant bg-surface-container-lowest px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-label-sm font-label-sm text-on-surface-variant">
+                      {progress.stageIndex && progress.stageTotal
+                        ? `步骤 ${progress.stageIndex}/${progress.stageTotal}`
+                        : '正在安装'}
+                    </div>
+                    <div className="mt-0.5 text-label-lg font-label-lg font-semibold truncate">
+                      {progress.stage || '准备本地 AI 环境'}
+                    </div>
+                  </div>
+                  <span className="whitespace-nowrap text-label-lg font-label-lg font-semibold">
+                    {progress.estimated || !progress.determinate ? '约 ' : ''}{Math.round(progress.percent)}%
+                  </span>
                 </div>
-                <div className={`h-2 bg-surface-variant rounded-full overflow-hidden ${progress.determinate ? '' : 'stitch-indeterminate'}`}>
-                  <div className="h-full bg-primary transition-[width] duration-200" style={{ width: `${progress.determinate ? progress.percent : 0}%` }} />
+                <div className={`h-2.5 bg-surface-variant rounded-full overflow-hidden ${progress.determinate ? '' : 'stitch-indeterminate'}`}>
+                  <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${Math.max(2, progress.percent)}%` }} />
                 </div>
-                <p className="text-label-sm font-label-sm text-on-surface-variant">下载和解压期间显示动态进度，不再扫描大型缓存目录。可以关闭窗口让它在后台继续；若重启软件，再点安装会复用已完成缓存。</p>
+                <div className="flex justify-between gap-4 text-label-sm font-label-sm text-on-surface-variant">
+                  <span className="min-w-0 truncate">{progress.status || '正在准备安装'}</span>
+                  {progress.speedBytesPerSecond ? <span className="whitespace-nowrap">{formatBytes(progress.speedBytesPerSecond)}/s</span> : null}
+                </div>
+                <p className="text-label-sm font-label-sm text-on-surface-variant">整体百分比用于表示完整安装流程；PyTorch 下载阶段为时间估算，进入模型下载后会显示实际文件进度。</p>
               </div>
             )}
             {!busy && progress.phase === 'error' && <p className="text-body-md font-body-md text-error">{progress.status}</p>}
             <div className="flex justify-end gap-3">
+              {!busy && (
+                <button className="mr-auto px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low flex items-center gap-2" onClick={onExportDiagnostics} type="button"><FileDown size={17} />导出诊断报告</button>
+              )}
               <button className="px-4 py-2.5 rounded-lg border border-surface-variant text-label-lg font-label-lg hover:bg-surface-container-low disabled:opacity-40 flex items-center gap-2" disabled={busy} onClick={() => onInstallEnvironment(installAccelerator, true)} type="button"><FolderOpen size={17} />选择位置</button>
               {busy ? (
                 <button className="px-5 py-2.5 rounded-lg border border-surface-variant bg-surface text-on-surface text-label-lg font-label-lg hover:bg-surface-container-low flex items-center gap-2" onClick={onCancelInstallation} type="button"><X size={18} />暂停安装</button>
@@ -3576,14 +3615,9 @@ function CompressionWorkbenchReference({
   const failed = items.filter((item) => item.status === 'failed')
   const finished = completed.length + failed.length
   const originalTotal = items.reduce((sum, item) => sum + item.size, 0)
-  const selectedRatio = selectedItem?.preview?.size && selectedItem.size ? selectedItem.preview.size / selectedItem.size : 0
-  const outputTotal = items.reduce((sum, item) => {
-    if (item.outputSize) return sum + item.outputSize
-    if (item.preview?.size) return sum + item.preview.size
-    if (selectedRatio) return sum + Math.round(item.size * selectedRatio)
-    return sum
-  }, 0)
-  const saving = outputTotal ? compressionSavings(originalTotal, outputTotal) : '-'
+  const completedOriginalTotal = completed.reduce((sum, item) => sum + item.size, 0)
+  const outputTotal = completed.reduce((sum, item) => sum + (item.outputSize || 0), 0)
+  const saving = completed.length ? compressionSavings(completedOriginalTotal, outputTotal) : ''
   const canRun = Boolean(items.length && !busy)
   const totalProgress = items.length ? Math.round((finished / items.length) * 100) : 0
   const imageViewStyle = { transform: `translate(${viewPan.x}px, ${viewPan.y}px) scale(${viewScale})`, transformOrigin: 'center center' }
@@ -3830,10 +3864,22 @@ function CompressionWorkbenchReference({
         <div className="compression-ref-stats">
           <span>总数：{items.length}</span>
           <span>已输出：{completed.length}</span>
-          <span>总原始：{formatBytes(originalTotal)}</span>
-          <span>→</span>
-          <strong>压缩后：{outputTotal ? formatBytes(outputTotal) : '计算中'}</strong>
-          <b>{saving}</b>
+          {completed.length > 0 && completed.length < items.length ? (
+            <>
+              <span>总原始：{formatBytes(originalTotal)}</span>
+              <span>已输出原始：{formatBytes(completedOriginalTotal)}</span>
+              <span>→</span>
+              <strong>压缩后：{formatBytes(outputTotal)}</strong>
+              <b>{saving}</b>
+            </>
+          ) : (
+            <>
+              <span>总原始：{formatBytes(originalTotal)}</span>
+              <span>→</span>
+              <strong>压缩后：{completed.length ? formatBytes(outputTotal) : '待输出'}</strong>
+              {completed.length > 0 && <b>{saving}</b>}
+            </>
+          )}
           <span className="compression-total-progress" aria-label={`总进度 ${totalProgress}%`}>
             <i style={{ width: `${totalProgress}%` }} />
           </span>

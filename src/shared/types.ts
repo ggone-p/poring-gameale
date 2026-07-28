@@ -136,6 +136,8 @@ export interface BackgroundRemovalRuntimeStatus {
   message: string
   installDir: string
   modelDir: string
+  freeDiskBytes?: number
+  nvidiaAvailable?: boolean
   version?: string
 }
 
@@ -152,6 +154,10 @@ export interface BackgroundRemovalProgress {
   percent: number
   determinate: boolean
   speedBytesPerSecond?: number
+  stage?: string
+  stageIndex?: number
+  stageTotal?: number
+  estimated?: boolean
 }
 
 export interface BackgroundRemovalResult {
