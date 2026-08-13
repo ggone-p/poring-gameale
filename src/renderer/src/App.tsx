@@ -61,6 +61,7 @@ import type {
   OverlayKind,
   OverlaySettings,
   OverlayState,
+  ProjectOutputGroup,
   SchemaSnapshot,
   UploadSelections
 } from '../../shared/types'
@@ -1353,7 +1354,7 @@ function App(): JSX.Element {
     } as Partial<AppConfig>)
   }
 
-  async function chooseGroupOutputDir(group: 'roc' | 'rorEu' | 'ror'): Promise<void> {
+  async function chooseGroupOutputDir(group: ProjectOutputGroup): Promise<void> {
     if (!config) return
     const dir = await window.assetUploader.pickDirectory()
     if (!dir) return
@@ -2422,12 +2423,14 @@ function projectTables(tables: SchemaSnapshot['tables']): SchemaSnapshot['tables
   return tables.filter((table) => {
     const name = table.name.trim()
     const upper = name.toUpperCase()
-    return allowedNames.some((allowed) => name.includes(allowed)) || upper.includes('GO')
+    const isGoPlaneTable = upper.includes('GO') && name.includes('平面')
+    return allowedNames.some((allowed) => name.includes(allowed)) || isGoPlaneTable
   })
 }
 
-function outputGroupForProject(projectName: string): 'roc' | 'rorEu' | 'ror' {
+function outputGroupForProject(projectName: string): ProjectOutputGroup {
   const upper = projectName.toUpperCase()
+  if (upper.includes('GO')) return 'go'
   if (projectName.includes('ROR欧美') || upper.includes('ROG')) return 'rorEu'
   if (upper.includes('ROC')) return 'roc'
   return 'ror'
@@ -4792,16 +4795,17 @@ function SettingsPanel({
   onChooseOutputDir: () => void
   onChooseProjectOutputDir: () => void
   onChooseProjectVideoOutputDir: () => void
-  onChooseGroupOutputDir: (group: 'roc' | 'rorEu' | 'ror') => void
+  onChooseGroupOutputDir: (group: ProjectOutputGroup) => void
   updateStatus: string
   onCheckUpdates: () => void
 }): JSX.Element {
   const fieldNames = schema.fields.map((field) => field.fieldName)
   const tables = projectTables(schema.tables)
-  const outputRows: Array<{ group: 'roc' | 'rorEu' | 'ror'; label: string; hint: string }> = [
+  const outputRows: Array<{ group: ProjectOutputGroup; label: string; hint: string }> = [
     { group: 'roc', label: 'ROC平面输出目录', hint: '未设置，使用上方通用输出目录' },
     { group: 'rorEu', label: 'ROR欧美平面输出目录', hint: '未设置，使用上方通用输出目录' },
-    { group: 'ror', label: 'ROR平面输出目录', hint: '未设置，使用上方通用输出目录' }
+    { group: 'ror', label: 'ROR平面输出目录', hint: '未设置，使用上方通用输出目录' },
+    { group: 'go', label: 'RO-GO平面输出目录', hint: '未设置，使用上方通用输出目录' }
   ]
   const fieldLabels: Record<string, string> = {
     language: '语言',

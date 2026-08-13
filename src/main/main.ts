@@ -152,7 +152,14 @@ function readConfig(): AppConfig {
       feishu: { ...fallback.feishu, ...parsed.feishu },
       fieldMapping: { ...fallback.fieldMapping, ...parsed.fieldMapping },
       assetLibrary: { ...fallback.assetLibrary, ...parsed.assetLibrary },
-      workflow: { ...fallback.workflow, ...parsed.workflow },
+      workflow: {
+        ...fallback.workflow,
+        ...parsed.workflow,
+        projectOutputDirs: { ...fallback.workflow.projectOutputDirs, ...parsed.workflow?.projectOutputDirs },
+        projectVideoOutputDirs: { ...fallback.workflow.projectVideoOutputDirs, ...parsed.workflow?.projectVideoOutputDirs },
+        groupOutputDirs: { ...fallback.workflow.groupOutputDirs, ...parsed.workflow?.groupOutputDirs },
+        tableOutputGroups: { ...fallback.workflow.tableOutputGroups, ...parsed.workflow?.tableOutputGroups }
+      },
       backgroundRemoval: { ...fallback.backgroundRemoval, ...parsed.backgroundRemoval },
       compression: {
         ...fallback.compression,
@@ -181,6 +188,14 @@ function readConfig(): AppConfig {
 }
 
 function applyBuiltInDefaults(config: AppConfig): AppConfig {
+  const configuredRorDir = config.workflow.groupOutputDirs?.ror || ''
+  const defaultRorDir = defaultWorkflow.groupOutputDirs.ror
+  const legacyRorSuffix = configuredRorDir.startsWith(`${defaultRorDir}\\`)
+    ? configuredRorDir.slice(defaultRorDir.length + 1)
+    : ''
+  const rorDir = /^\d{1,2}月$/.test(legacyRorSuffix)
+    ? defaultRorDir
+    : configuredRorDir || defaultRorDir
   return {
     ...config,
     feishu: {
@@ -191,7 +206,13 @@ function applyBuiltInDefaults(config: AppConfig): AppConfig {
     },
     workflow: {
       ...config.workflow,
-      updateUrl: config.workflow.updateUrl || DEFAULT_UPDATE_URL
+      updateUrl: config.workflow.updateUrl || DEFAULT_UPDATE_URL,
+      groupOutputDirs: {
+        ...defaultWorkflow.groupOutputDirs,
+        ...config.workflow.groupOutputDirs,
+        ror: rorDir,
+        go: config.workflow.groupOutputDirs?.go || defaultWorkflow.groupOutputDirs.go
+      }
     },
     compression: {
       ...defaultCompression,
@@ -222,7 +243,14 @@ function saveConfig(patch: Partial<AppConfig>): AppConfig {
     feishu: { ...current.feishu, ...patch.feishu },
     fieldMapping: { ...current.fieldMapping, ...patch.fieldMapping },
     assetLibrary: { ...current.assetLibrary, ...patch.assetLibrary },
-    workflow: { ...current.workflow, ...patch.workflow },
+    workflow: {
+      ...current.workflow,
+      ...patch.workflow,
+      projectOutputDirs: { ...current.workflow.projectOutputDirs, ...patch.workflow?.projectOutputDirs },
+      projectVideoOutputDirs: { ...current.workflow.projectVideoOutputDirs, ...patch.workflow?.projectVideoOutputDirs },
+      groupOutputDirs: { ...current.workflow.groupOutputDirs, ...patch.workflow?.groupOutputDirs },
+      tableOutputGroups: { ...current.workflow.tableOutputGroups, ...patch.workflow?.tableOutputGroups }
+    },
     backgroundRemoval: { ...current.backgroundRemoval, ...patch.backgroundRemoval },
     compression: {
       ...current.compression,

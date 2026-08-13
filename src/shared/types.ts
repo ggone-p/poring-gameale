@@ -41,12 +41,14 @@ export interface AssetLibrary {
   iconDir: string
 }
 
+export type ProjectOutputGroup = 'roc' | 'rorEu' | 'ror' | 'go'
+
 export interface WorkflowPreferences {
   outputDir: string
   projectOutputDirs: Record<string, string>
   projectVideoOutputDirs: Record<string, string>
-  groupOutputDirs: Record<'roc' | 'rorEu' | 'ror', string>
-  tableOutputGroups: Record<string, 'roc' | 'rorEu' | 'ror'>
+  groupOutputDirs: Record<ProjectOutputGroup, string>
+  tableOutputGroups: Record<string, ProjectOutputGroup>
   accentColor: string
   updateUrl: string
   autoCheckUpdates: boolean
@@ -306,7 +308,8 @@ export const defaultWorkflow: WorkflowPreferences = {
   groupOutputDirs: {
     roc: '',
     rorEu: '',
-    ror: ''
+    ror: '\\\\nas-publish.gastudio.cn\\发行运营中心\\ROR\\UA素材\\04_分批次\\ROR七日服\\2026',
+    go: '\\\\nas-publish.gastudio.cn\\发行运营中心\\RO-GO\\03_UA素材\\02_储备素材\\ZH\\图片\\2026'
   },
   tableOutputGroups: {},
   accentColor: '#fd7e8a',
